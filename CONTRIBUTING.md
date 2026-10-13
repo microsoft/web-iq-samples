@@ -60,5 +60,5 @@ the pull request description:
 3. Identify any service access, cost, or deployment requirements.
 4. Confirm that the public-content boundary above has been reviewed.
 
-Pull requests require review from the owners configured in
+Pull requests require maintainer review from a code owner configured in
 `.github/CODEOWNERS`. Do not merge until required checks and reviews pass.
