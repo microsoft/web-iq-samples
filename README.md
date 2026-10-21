@@ -2,6 +2,12 @@
 
 Runnable examples for building applications with Microsoft Web IQ.
 
+## Project status
+
+This repository is being prepared for its initial release. No samples have been
+published yet. The current content is documentation and repository configuration;
+it does not include third-party code.
+
 ## Samples
 
 Samples are organized by implementation language or infrastructure technology:
@@ -24,6 +30,12 @@ run instructions, and validation steps.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for repository structure, sample
 requirements, validation expectations, and public-content restrictions.
 
+This project has adopted the [Microsoft Open Source Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Support
+
+See [SUPPORT.md](SUPPORT.md) for questions, bug reports, and feature requests.
+
 ## Security
 
 Do not report security vulnerabilities through public GitHub issues. See
@@ -31,4 +43,13 @@ Do not report security vulnerabilities through public GitHub issues. See
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+This project is licensed under the [MIT License](LICENSE.txt).
+
+## Trademarks
+
+This project may contain trademarks or logos for projects, products, or services.
+Authorized use of Microsoft trademarks or logos is subject to and must follow
+[Microsoft's Trademark & Brand Guidelines](https://www.microsoft.com/legal/intellectualproperty/trademarks).
+Use of Microsoft trademarks or logos in modified versions of this project must
+not cause confusion or imply Microsoft sponsorship. Any use of third-party
+trademarks or logos are subject to those third-party's policies.
