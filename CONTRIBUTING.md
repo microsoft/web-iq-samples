@@ -2,6 +2,22 @@
 
 Thank you for contributing a Web IQ sample.
 
+## Contributor License Agreement
+
+This project welcomes contributions and suggestions. Most contributions require
+you to agree to a Contributor License Agreement (CLA) declaring that you have the
+right to, and actually do, grant us the rights to use your contribution. For
+details, visit [Contributor License Agreements](https://cla.opensource.microsoft.com).
+
+When you submit a pull request, a CLA bot will automatically determine whether
+you need to provide a CLA and decorate the PR appropriately (e.g., status check,
+comment). Simply follow the instructions provided by the bot. You will only need
+to do this once across all repos using our CLA.
+
+## Code of conduct
+
+Please read and follow the [Microsoft Open Source Code of Conduct](CODE_OF_CONDUCT.md).
+
 ## Repository structure
 
 Place each sample in a self-contained directory:
@@ -32,6 +48,21 @@ Every sample must:
 - Handle service and authentication failures explicitly.
 - Link only to public documentation from checked-in content.
 - Add an entry to the sample table in the root `README.md`.
+- Include the following notice at the head of each source file, using the
+  language's comment syntax:
+
+  ```text
+  Copyright (c) Microsoft Corporation.
+  Licensed under the MIT License.
+  ```
+
+- Attribute included third-party open source code in a `NOTICE` file and preserve
+  any required license notices.
+- Document any telemetry collected by Microsoft, provide instructions to turn it
+  off, and include the required telemetry notice in the root `README.md` when
+  applicable.
+- Update the root project-status and third-party-code description when adding
+  samples or third-party code.
 
 ## Public-content boundary
 

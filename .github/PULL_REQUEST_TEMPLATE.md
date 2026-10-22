@@ -14,3 +14,7 @@
 - [ ] Tests or documented validation steps pass.
 - [ ] The root sample catalog is updated when applicable.
 - [ ] New third-party dependencies have compatible licenses.
+- [ ] Source files include the Microsoft copyright and MIT license notice.
+- [ ] Included third-party code has the required attribution and license notices.
+- [ ] Telemetry notices and opt-out instructions are included when applicable.
+- [ ] The root project-status and third-party-code description remain accurate.
