@@ -2,15 +2,18 @@
 # Licensed under the MIT License.
 
 import argparse
+import logging
 import os
 import sys
 from datetime import date, timedelta
 from pathlib import Path
 
+from azure.core.exceptions import AzureError
 from openai import OpenAIError
 from webiq.errors import WebIQError
 
 from .config import load_azure_openai_settings
+from .diagnostics import logger
 from .queries import build_queries
 from .report import build_markdown, generate_report_body
 from .retrieval import retrieve_evidence
@@ -33,6 +36,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--region", default="US")
     parser.add_argument(
+        "--webiq-auth",
+        choices=("api-key", "entra"),
+        default="api-key",
+        help="Web IQ authentication; entra uses DefaultAzureCredential (default: api-key).",
+    )
+    parser.add_argument(
         "--output",
         type=Path,
         default=Path("market-briefing.md"),
@@ -44,7 +53,15 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     _validate_args(args)
 
-    webiq_api_key = _required_environment_variable("WEBIQ_API_KEY")
+    logging.basicConfig(
+        level=logging.WARNING,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S%z",
+    )
+    logger.setLevel(logging.INFO)
+    webiq_api_key = (
+        _required_environment_variable("WEBIQ_API_KEY") if args.webiq_auth == "api-key" else None
+    )
     azure_openai_api_key = _required_environment_variable("AZURE_OPENAI_API_KEY")
     azure_openai = load_azure_openai_settings(args.config)
     end_date = date.today()
@@ -57,6 +74,7 @@ def main(argv: list[str] | None = None) -> int:
         queries=queries,
         max_results=args.max_results,
         region=args.region,
+        auth_mode=args.webiq_auth,
     )
     print(f"Retrieved {len(evidence)} unique sources. Generating report...")
 
@@ -87,7 +105,15 @@ def main(argv: list[str] | None = None) -> int:
 def entrypoint() -> None:
     try:
         raise SystemExit(main())
-    except (ValueError, RuntimeError, WebIQError, OpenAIError) as error:
+    except (WebIQError, OpenAIError, AzureError) as error:
+        logger.error("Request failed: exception=%s", type(error).__name__)
+        print(
+            "Error: A service or authentication request failed. Check the status, error code, "
+            "and correlation IDs above; verify credentials and service access before retrying.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from error
+    except (ValueError, RuntimeError, OSError) as error:
         print(f"Error: {error}", file=sys.stderr)
         raise SystemExit(1) from error
 
