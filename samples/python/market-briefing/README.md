@@ -2,6 +2,8 @@
 
 Generate a cited Markdown report from current web and news passages. Web IQ retrieves the evidence and Azure OpenAI turns it into a concise briefing. Click a numbered citation to jump to its source entry, with a linked title and the full URL.
 
+Azure OpenAI is the example model provider, not a Web IQ requirement. Another chat model can be used with small changes to the model client and response handling; it is not a configuration-only switch. Model usage is a separate cost from Web IQ usage.
+
 ## Prerequisites
 
 - Python 3.11 or later
@@ -11,10 +13,14 @@ Generate a cited Markdown report from current web and news passages. Web IQ retr
 
 ## Get started
 
-Open PowerShell in this directory, then create an environment and install the sample:
+Run the commands from this directory using Python 3.11 or later. The remaining examples use PowerShell unless labeled otherwise.
+
+### Windows (PowerShell)
+
+Create an environment and install the sample:
 
 ```powershell
-py -3.12 -m venv .venv
+py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install .
 ```
@@ -25,6 +31,20 @@ Set your API keys:
 $env:WEBIQ_API_KEY = "<your Web IQ API key>"
 $env:AZURE_OPENAI_API_KEY = "<your Azure OpenAI API key>"
 ```
+
+### macOS/Linux (Bash)
+
+Ensure `python3` is Python 3.11 or later, then create an environment, install the sample, and set your API keys:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install .
+export WEBIQ_API_KEY="<your Web IQ API key>"
+export AZURE_OPENAI_API_KEY="<your Azure OpenAI API key>"
+```
+
+### Configure and run
 
 Edit `config.json` and replace the Azure OpenAI placeholders:
 
@@ -44,6 +64,12 @@ Generate the report:
 webiq-market-briefing `
   "North American energy market" `
   --output reports\energy-briefing.md
+```
+
+On macOS/Linux:
+
+```bash
+webiq-market-briefing "North American energy market" --output reports/energy-briefing.md
 ```
 
 Open the result:
@@ -122,7 +148,7 @@ Remove-Item Env:\AZURE_CLIENT_CERTIFICATE_PASSWORD -ErrorAction SilentlyContinue
 
 Set it again before the next run if you cleared it or opened a new shell. `Failed to deserialize certificate in PEM or PKCS12 format` means the local file could not be loaded: verify the path points to the private-key PFX/PEM, not the public CER, and that the existing password is available in the process.
 
-The application identity must resolve to your provisioned Web IQ App ID with **both Web and News entitlements**. This sample does not select among multiple App IDs; use an identity with one mapping. A successful token request does not prove endpoint access. For a 401 or 403, check the application mapping and both entitlements rather than repeatedly signing in.
+The application identity must resolve to your provisioned Web IQ AppID with **both Web and News entitlements**. This sample does not select among multiple AppIDs; use an identity with one mapping. A successful token request does not prove endpoint access. For a 401 or 403, check the application mapping and both entitlements rather than repeatedly signing in.
 
 #### Production certificate handling
 

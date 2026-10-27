@@ -23,7 +23,7 @@ run instructions, and validation steps.
 
 | Sample | Language | Description |
 |---|---|---|
-| [Market briefing](samples/python/market-briefing/) | Python | Uses Web IQ web and news passages and Azure OpenAI to generate a cited Markdown briefing. Supports API-key or certificate-based Microsoft Entra authentication for Web IQ. |
+| [Market briefing](samples/python/market-briefing/) | Python | Uses Web IQ web and news passages to generate a cited Markdown briefing. Azure OpenAI is the example model provider; other chat models require small integration changes. Model usage is a separate cost. Supports API-key or certificate-based Microsoft Entra authentication for Web IQ. |
 
 ## Contributing
 
