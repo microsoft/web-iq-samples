@@ -3,19 +3,28 @@
 
 import json
 import logging
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import httpx
 import pytest
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.serialization import pkcs12
+from cryptography.x509.oid import NameOID
 from webiq import WebIQClient
 from webiq.errors import APIConnectionError, APIStatusError
 
 from webiq_market_briefing import retrieval
 
 
-@pytest.mark.parametrize("auth_mode", ["api-key", "entra"])
-def test_passage_search_and_authentication(monkeypatch, caplog, auth_mode) -> None:
+@pytest.mark.parametrize(
+    ("auth_mode", "password"),
+    [("api-key", None), ("entra", None), ("entra", "PRIVATE-PFX-PASSWORD")],
+)
+def test_passage_search_and_authentication(monkeypatch, caplog, auth_mode, password) -> None:
     requests = []
 
     def respond(request):
@@ -31,7 +40,15 @@ def test_passage_search_and_authentication(monkeypatch, caplog, auth_mode) -> No
     credential.__enter__.return_value = credential
     credential.get_token.return_value = SimpleNamespace(token="test-token")
     credential_factory = MagicMock(return_value=credential)
-    monkeypatch.setattr(retrieval, "DefaultAzureCredential", credential_factory)
+    monkeypatch.setattr(retrieval, "CertificateCredential", credential_factory)
+    monkeypatch.setenv("AZURE_TENANT_ID", "tenant-id")
+    monkeypatch.setenv("AZURE_CLIENT_ID", "client-id")
+    monkeypatch.setenv("AZURE_CLIENT_CERTIFICATE_PATH", "certificate.pfx")
+    monkeypatch.setenv("AZURE_CLIENT_SECRET", "IGNORED-CLIENT-SECRET")
+    if password is None:
+        monkeypatch.delenv("AZURE_CLIENT_CERTIFICATE_PASSWORD", raising=False)
+    else:
+        monkeypatch.setenv("AZURE_CLIENT_CERTIFICATE_PASSWORD", password)
     with httpx.Client(base_url="https://api.microsoft.ai/v3", transport=httpx.MockTransport(respond)) as http_client:
         monkeypatch.setattr(
             retrieval, "WebIQClient",
@@ -57,11 +74,80 @@ def test_passage_search_and_authentication(monkeypatch, caplog, auth_mode) -> No
     assert "trace-success" in caplog.text
     assert "test-key" not in caplog.text
     assert "test-token" not in caplog.text
+    assert "PRIVATE-PFX-PASSWORD" not in caplog.text
+    assert "IGNORED-CLIENT-SECRET" not in caplog.text
     if auth_mode == "entra":
+        credential_factory.assert_called_once_with(
+            tenant_id="tenant-id", client_id="client-id",
+            certificate_path="certificate.pfx", password=password,
+        )
         credential.get_token.assert_called_with("https://api.microsoft.ai/.default")
         credential.__exit__.assert_called_once()
     else:
         credential_factory.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "variable", ["AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_CERTIFICATE_PATH"],
+)
+@pytest.mark.parametrize("value", [None, "   "])
+def test_entra_requires_certificate_settings_before_creating_client(monkeypatch, variable, value) -> None:
+    for name in ("AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_CERTIFICATE_PATH"):
+        monkeypatch.setenv(name, "configured")
+    if value is None:
+        monkeypatch.delenv(variable, raising=False)
+    else:
+        monkeypatch.setenv(variable, value)
+    client = MagicMock()
+    credential = MagicMock()
+    monkeypatch.setattr(retrieval, "WebIQClient", client)
+    monkeypatch.setattr(retrieval, "CertificateCredential", credential)
+
+    with pytest.raises(ValueError, match=variable):
+        retrieval.retrieve_evidence(None, ["query"], 5, "US", auth_mode="entra")
+
+    credential.assert_not_called()
+    client.assert_not_called()
+
+
+@pytest.mark.parametrize("password", [None, "PRIVATE-PFX-PASSWORD"])
+def test_entra_loads_real_pfx_and_rejects_wrong_password(monkeypatch, tmp_path, password) -> None:
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "offline-test")])
+    now = datetime.now(timezone.utc)
+    certificate = (
+        x509.CertificateBuilder()
+        .subject_name(name).issuer_name(name).public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(minutes=1))
+        .not_valid_after(now + timedelta(days=1))
+        .sign(key, hashes.SHA256())
+    )
+    path = tmp_path / "test.pfx"
+    encryption = (
+        serialization.BestAvailableEncryption(password.encode())
+        if password else serialization.NoEncryption()
+    )
+    path.write_bytes(pkcs12.serialize_key_and_certificates(
+        b"offline-test", key, certificate, None, encryption,
+    ))
+    monkeypatch.setenv("AZURE_TENANT_ID", "00000000-0000-0000-0000-000000000001")
+    monkeypatch.setenv("AZURE_CLIENT_ID", "00000000-0000-0000-0000-000000000002")
+    monkeypatch.setenv("AZURE_CLIENT_CERTIFICATE_PATH", str(path))
+    if password is None:
+        monkeypatch.delenv("AZURE_CLIENT_CERTIFICATE_PASSWORD", raising=False)
+    else:
+        monkeypatch.setenv("AZURE_CLIENT_CERTIFICATE_PASSWORD", password)
+
+    with retrieval._certificate_credential() as credential:
+        assert isinstance(credential, retrieval.CertificateCredential)
+
+    monkeypatch.setenv("AZURE_CLIENT_CERTIFICATE_PASSWORD", "wrong-password")
+    client = MagicMock()
+    monkeypatch.setattr(retrieval, "WebIQClient", client)
+    with pytest.raises(ValueError, match="certificate"):
+        retrieval.retrieve_evidence(None, ["query"], 5, "US", auth_mode="entra")
+    client.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -119,6 +205,42 @@ def test_connection_failure_retries_then_succeeds(monkeypatch) -> None:
     call = MagicMock(side_effect=[APIConnectionError("private detail"), "result"])
     assert retrieval._search_with_retry(call) == "result"
     assert call.call_count == 2
+
+
+def test_queries_and_all_received_urls_are_logged_as_single_line_json(monkeypatch, caplog) -> None:
+    query = "energy \"outlook\"\r\nfor 2026"
+    url = "https://example.com/report?q=energy&year=2026"
+    skipped_url = "https://example.com/no-content\nforged-entry"
+    result = SimpleNamespace(
+        title="Title", url=url, content="PRIVATE-PASSAGE",
+        lastUpdatedAt=None, source=None,
+    )
+    skipped = SimpleNamespace(
+        title="Title", url=skipped_url, content=None, lastUpdatedAt=None,
+    )
+    client = MagicMock()
+    client.__enter__.return_value = client
+    client.web.search.return_value = SimpleNamespace(webResults=[result, result, skipped])
+    client.news.search.return_value = SimpleNamespace(newsResults=[result])
+    monkeypatch.setattr(retrieval, "WebIQClient", lambda **kwargs: client)
+
+    with caplog.at_level(logging.INFO, logger="webiq_market_briefing"):
+        evidence = retrieval.retrieve_evidence("PRIVATE-KEY", [query], 5, "US")
+
+    assert len(evidence) == 1
+    assert client.web.search.call_args.args == (query,)
+    assert client.news.search.call_args.args == (query,)
+    messages = [
+        record.getMessage() for record in caplog.records
+        if record.name == "webiq_market_briefing"
+    ]
+    for operation in ("_search_web", "_search_news"):
+        assert f"service=webiq operation={operation} query={json.dumps(query)}" in messages
+    assert sum(f"source_url={json.dumps(url)}" in message for message in messages) == 3
+    assert any(f"source_url={json.dumps(skipped_url)}" in message for message in messages)
+    assert all("\r" not in message and "\n" not in message for message in messages)
+    assert "PRIVATE-KEY" not in caplog.text
+    assert "PRIVATE-PASSAGE" not in caplog.text
 
 
 @pytest.mark.parametrize("url,content", [("javascript:alert(1)", "data"), ("https://example.com", " ")])

@@ -14,14 +14,15 @@ from webiq_market_briefing.models import Evidence
 from webiq_market_briefing.report import build_markdown
 
 
-def test_build_markdown_appends_numbered_sources() -> None:
+@pytest.mark.parametrize("result_type", ["web", "news"])
+def test_build_markdown_appends_numbered_sources(result_type) -> None:
     evidence = [
         Evidence(
             title="Example source",
             url="https://example.com/report",
             content="Example evidence.",
             query="example query",
-            result_type="web",
+            result_type=result_type,
             publisher="Example Publisher",
             updated_at="2026-10-05",
         )
@@ -38,21 +39,72 @@ def test_build_markdown_appends_numbered_sources() -> None:
     assert markdown.startswith("# Example market Briefing")
     assert "A supported finding [[1]](#source-1)." in markdown
     assert "## Sources" in markdown
-    assert "1. [Example source](https://example.com/report)" in markdown
+    assert '1. <a id="source-1"></a>[Example source](https://example.com/report)' in markdown
     assert '<a id="source-1"></a>' in markdown
-    assert "> **Retrieved passage**" in markdown
-    assert "> Example evidence\\." in markdown
+    assert "Example Publisher \\| 2026\\-10\\-05" in markdown
+    assert result_type not in markdown.split("## Sources", 1)[1]
+    assert "[https://example\\.com/report](https://example.com/report)" in markdown
+    assert "Retrieved passage" not in markdown
+    assert "Example evidence" not in markdown
+    assert "### 1." not in markdown
 
 
 @pytest.mark.parametrize("body", ["Uncited finding.", "Finding [0].", "Finding [2].",
-                                     "Finding [1]. [click](https://example.com)"])
+                                     "Finding [1]. [click](https://example.com)",
+                                     "Finding [1]. ![image](image.png)",
+                                     "Finding [1]. <script>markup</script>",
+                                     "Finding [1]. ```code```"])
 def test_invalid_citations_do_not_produce_markdown(body: str) -> None:
     item = Evidence("Title", "https://example.com", "Passage", "query", "web")
     with pytest.raises(RuntimeError, match="No report was written"):
         build_markdown("Topic", date.today(), date.today(), body, [item])
 
 
-def test_passages_are_escaped_not_executed_as_markdown() -> None:
+def test_build_markdown_links_adjacent_repeated_and_multidigit_citations() -> None:
+    evidence = [
+        Evidence(
+            title=f"Source {index}",
+            url=f"https://example.com/{index}",
+            content="Evidence.",
+            query="query",
+            result_type="web",
+        )
+        for index in range(1, 11)
+    ]
+    markdown = build_markdown(
+        "Topic", date.today(), date.today(),
+        "Summary.[1][2][10]\n\n## Outlook\n\nRepeated.[1]", evidence,
+    )
+    assert "Summary. [[1]](#source-1) [[2]](#source-2) [[10]](#source-10)" in markdown
+    assert "Repeated. [[1]](#source-1)" in markdown
+    for index in range(1, 11):
+        assert f'<a id="source-{index}"></a>' in markdown
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ("Finding.[1]", "Finding. [[1]](#source-1)"),
+        ("Finding. [1]", "Finding. [[1]](#source-1)"),
+        ("[1] Finding.", "[[1]](#source-1) Finding."),
+        ("Finding.\n[1]", "Finding.\n[[1]](#source-1)"),
+        ("  Finding.[1]  ", "Finding. [[1]](#source-1)"),
+    ],
+)
+def test_build_markdown_formats_citation_brackets_and_spacing(
+    body: str, expected: str,
+) -> None:
+    item = Evidence("Title", "https://example.com", "Passage", "query", "web")
+    markdown = build_markdown("Topic", date.today(), date.today(), body, [item])
+    assert f"\n\n{expected}\n\n## Sources" in markdown
+
+
+def test_build_markdown_without_evidence_rejects_citations() -> None:
+    with pytest.raises(RuntimeError, match="No report was written"):
+        build_markdown("Topic", date.today(), date.today(), "No evidence [1].", [])
+
+
+def test_source_metadata_is_escaped_and_passages_are_omitted() -> None:
     item = Evidence(
         "<script>title</script>", "https://example.com/a(b)",
         "# Untrusted\n<script>alert(1)</script>\n[link](https://evil.example)",
@@ -60,8 +112,10 @@ def test_passages_are_escaped_not_executed_as_markdown() -> None:
     )
     markdown = build_markdown("Topic", date.today(), date.today(), "Finding [1].", [item])
     assert "<script>" not in markdown
-    assert "> \\# Untrusted" in markdown
-    assert r"\[link\]" in markdown
+    assert "&lt;script&gt;title&lt;/script&gt;" in markdown
+    assert "Untrusted" not in markdown
+    assert "alert" not in markdown
+    assert "evil.example" not in markdown
     assert "https://example.com/a%28b%29" in markdown
 
 

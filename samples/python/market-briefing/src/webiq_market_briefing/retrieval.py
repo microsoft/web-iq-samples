@@ -1,7 +1,9 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+import json
 import math
+import os
 import random
 import re
 import time
@@ -10,7 +12,7 @@ from contextlib import ExitStack
 from typing import TypeVar
 from urllib.parse import urlsplit
 
-from azure.identity import DefaultAzureCredential
+from azure.identity import CertificateCredential
 from webiq import RetryPolicy, WebIQClient
 from webiq.errors import APIConnectionError, APIStatusError
 from webiq.types import ContentFormat
@@ -38,7 +40,7 @@ def retrieve_evidence(
     evidence_by_url: dict[str, Evidence] = {}
 
     with ExitStack() as stack:
-        credential = stack.enter_context(DefaultAzureCredential()) if auth_mode == "entra" else None
+        credential = stack.enter_context(_certificate_credential()) if auth_mode == "entra" else None
         client = stack.enter_context(
             WebIQClient(
                 api_key=api_key if auth_mode == "api-key" else None,
@@ -50,6 +52,7 @@ def retrieve_evidence(
             )
         )
         for query in queries:
+            logger.info("service=webiq operation=_search_web query=%s", json.dumps(query))
             web_response = _search_with_retry(
                 lambda: client.web.search(
                     query,
@@ -61,6 +64,11 @@ def retrieve_evidence(
                 )
             )
             for result in web_response.webResults or []:
+                if result.url:
+                    logger.info(
+                        "service=webiq operation=_search_web query=%s source_url=%s",
+                        json.dumps(query), json.dumps(result.url),
+                    )
                 item = _to_evidence(
                     title=result.title,
                     url=result.url,
@@ -72,6 +80,7 @@ def retrieve_evidence(
                 if item:
                     evidence_by_url.setdefault(item.url, item)
 
+            logger.info("service=webiq operation=_search_news query=%s", json.dumps(query))
             news_response = _search_with_retry(
                 lambda: client.news.search(
                     query,
@@ -83,6 +92,11 @@ def retrieve_evidence(
                 )
             )
             for result in news_response.newsResults or []:
+                if result.url:
+                    logger.info(
+                        "service=webiq operation=_search_news query=%s source_url=%s",
+                        json.dumps(query), json.dumps(result.url),
+                    )
                 item = _to_evidence(
                     title=result.title,
                     url=result.url,
@@ -96,6 +110,23 @@ def retrieve_evidence(
                     evidence_by_url.setdefault(item.url, item)
 
     return list(evidence_by_url.values())[:MAX_EVIDENCE_ITEMS]
+
+
+def _certificate_credential() -> CertificateCredential:
+    settings = {}
+    for parameter, variable in (
+        ("tenant_id", "AZURE_TENANT_ID"),
+        ("client_id", "AZURE_CLIENT_ID"),
+        ("certificate_path", "AZURE_CLIENT_CERTIFICATE_PATH"),
+    ):
+        value = os.environ.get(variable)
+        if not value or not value.strip():
+            raise ValueError(f"Set the {variable} environment variable before using --webiq-auth entra.")
+        settings[parameter] = value
+    return CertificateCredential(
+        **settings,
+        password=os.environ.get("AZURE_CLIENT_CERTIFICATE_PASSWORD"),
+    )
 
 
 def _search_with_retry(search: Callable[[], T]) -> T:

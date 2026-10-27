@@ -113,17 +113,14 @@ def build_markdown(
     ]
 
     for index, item in enumerate(evidence, start=1):
-        details = [item.publisher, item.updated_at, item.result_type]
+        details = [item.publisher, item.updated_at]
         suffix = " | ".join(value for value in details if value)
         title = _escape_markdown(item.title)
         url = quote(item.url, safe="/:?#[]@!$&'*+,;=%")
-        lines.extend([f'<a id="source-{index}"></a>', ""])
-        source_line = f"### {index}. [{title}]({url})"
+        source_line = f'{index}. <a id="source-{index}"></a>[{title}]({url})'
         if suffix:
             source_line += f" - {_escape_markdown(suffix)}"
-        lines.extend([source_line, "", "> **Retrieved passage**", ">"])
-        lines.extend(f"> {_escape_markdown(line)}" for line in item.content.splitlines())
-        lines.append("")
+        lines.extend([source_line + "  ", f"   [{_escape_markdown(item.url)}]({url})", ""])
 
     lines.append("")
     return "\n".join(lines)
@@ -171,7 +168,12 @@ def _validate_citations(body: str, source_count: int) -> None:
 
 def _link_citations(body: str, source_count: int) -> str:
     _validate_citations(body, source_count)
-    return _CITATION.sub(lambda match: f"[[{match.group(1)}]](#source-{int(match.group(1))})", body)
+
+    def link_citation(match: re.Match[str]) -> str:
+        prefix = "" if match.start() == 0 or body[match.start() - 1].isspace() else " "
+        return prefix + f"[[{match.group(1)}]](#source-{int(match.group(1))})"
+
+    return _CITATION.sub(link_citation, body)
 
 
 def _escape_markdown(value: str) -> str:

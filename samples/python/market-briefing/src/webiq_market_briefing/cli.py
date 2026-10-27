@@ -39,7 +39,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--webiq-auth",
         choices=("api-key", "entra"),
         default="api-key",
-        help="Web IQ authentication; entra uses DefaultAzureCredential (default: api-key).",
+        help="Web IQ authentication; entra uses CertificateCredential (default: api-key).",
     )
     parser.add_argument(
         "--output",
