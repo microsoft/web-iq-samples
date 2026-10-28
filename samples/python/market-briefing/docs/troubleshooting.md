@@ -8,6 +8,7 @@ Retrieval or generation failures stop the run and leave an existing output file 
 
 | Symptom | Action |
 | --- | --- |
+| HTTP 400 `AuthAppIdSelectionRequired` | The application identity maps to more than one Web IQ AppID. This sample does not select among AppIDs; use an application identity mapped to one provisioned AppID with both Web and News entitlements. See [Web IQ error handling](https://learn.microsoft.com/en-us/web-iq/reference/error-handling) for the service's AppID-selection guidance. |
 | HTTP 401 or 403 | Check credentials and service provisioning. For certificate mode, verify the application maps to one Web IQ AppID with both Web and News entitlements; see [authentication guidance](authentication.md). Azure OpenAI uses its own API key. |
 | Certificate deserialization failure | Verify that the path identifies the private-key PFX/PEM, not the public CER, and that its existing password is available in this process. See [certificate setup](authentication.md#register-a-certificate-and-run-locally-windows-powershell). |
 | HTTP 429 or 430 | Wait for service retry guidance before rerunning. |

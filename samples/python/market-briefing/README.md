@@ -7,7 +7,7 @@ Azure OpenAI is the example model provider, not a Web IQ requirement. Other chat
 ## Prerequisites
 
 - Python 3.11 or later
-- A Web IQ API key with both Web and News access, or a provisioned application using [certificate-based Microsoft Entra authentication](docs/authentication.md)
+- [A Web IQ API key](https://learn.microsoft.com/en-us/web-iq/get-started/quickstart) with both Web and News access, or a provisioned application using [certificate-based Microsoft Entra authentication](docs/authentication.md)
 - An Azure OpenAI resource with a deployed model and an API key
 
 ## Get started
