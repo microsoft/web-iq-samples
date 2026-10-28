@@ -9,6 +9,7 @@ import re
 import time
 from collections.abc import Callable, Iterable
 from contextlib import ExitStack
+from itertools import zip_longest
 from typing import TypeVar
 from urllib.parse import urlsplit
 
@@ -37,7 +38,7 @@ def retrieve_evidence(
 ) -> list[Evidence]:
     if auth_mode not in {"api-key", "entra"}:
         raise ValueError("Web IQ authentication must be api-key or entra.")
-    evidence_by_url: dict[str, Evidence] = {}
+    result_groups: list[list[Evidence]] = []
 
     with ExitStack() as stack:
         credential = stack.enter_context(_certificate_credential()) if auth_mode == "entra" else None
@@ -63,6 +64,7 @@ def retrieve_evidence(
                     max_length=MAX_CONTENT_CHARACTERS,
                 )
             )
+            web_items = []
             for result in web_response.webResults or []:
                 if result.url:
                     logger.info(
@@ -78,7 +80,8 @@ def retrieve_evidence(
                     updated_at=result.lastUpdatedAt,
                 )
                 if item:
-                    evidence_by_url.setdefault(item.url, item)
+                    web_items.append(item)
+            result_groups.append(web_items)
 
             logger.info("service=webiq operation=_search_news query=%s", json.dumps(query))
             news_response = _search_with_retry(
@@ -91,6 +94,7 @@ def retrieve_evidence(
                     max_length=MAX_CONTENT_CHARACTERS,
                 )
             )
+            news_items = []
             for result in news_response.newsResults or []:
                 if result.url:
                     logger.info(
@@ -107,9 +111,17 @@ def retrieve_evidence(
                     updated_at=result.lastUpdatedAt,
                 )
                 if item:
-                    evidence_by_url.setdefault(item.url, item)
+                    news_items.append(item)
+            result_groups.append(news_items)
 
-    return list(evidence_by_url.values())[:MAX_EVIDENCE_ITEMS]
+    evidence_by_url: dict[str, Evidence] = {}
+    for round_items in zip_longest(*result_groups):
+        for item in round_items:
+            if item is not None:
+                evidence_by_url.setdefault(item.url, item)
+                if len(evidence_by_url) == MAX_EVIDENCE_ITEMS:
+                    return list(evidence_by_url.values())
+    return list(evidence_by_url.values())
 
 
 def _certificate_credential() -> CertificateCredential:

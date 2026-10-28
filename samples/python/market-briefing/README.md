@@ -68,7 +68,7 @@ Open the generated Markdown in your editor. Keep credentials out of `config.json
 
 1. Builds date-bounded queries, unless you supply explicit queries.
 2. Retrieves Web IQ web and news passages with a 3,000-character limit per result.
-3. Deduplicates by URL and sends up to 18 sources to the model.
+3. Selects up to 18 unique source URLs round-robin across each query's Web and News results, preserving rank within each group. Duplicate URLs are skipped and empty or exhausted groups contribute no further results, so other groups can fill the remaining slots. Fewer than 18 unique, usable sources means fewer are sent to the model.
 4. Asks the model to synthesize only from that evidence and checks numeric citations and response completion.
 5. Writes a Markdown briefing with linked citations and source titles, full URLs, and available publisher/last-updated metadata. The Sources list does not include passage excerpts.
 

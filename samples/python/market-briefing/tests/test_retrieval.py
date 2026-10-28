@@ -207,6 +207,59 @@ def test_connection_failure_retries_then_succeeds(monkeypatch) -> None:
     assert call.call_count == 2
 
 
+@pytest.mark.parametrize(
+    ("groups", "expected"),
+    [
+        (
+            [[f"{group}-{rank}" for rank in range(5)] for group in range(6)],
+            [f"{group}-{rank}" for rank in range(3) for group in range(6)],
+        ),
+        (
+            [
+                [],
+                ["shared", "shared", "a", "b", "c"],
+                ["shared", "d", "e", "f", "g"],
+                ["h", "i", "j", "k", "l"],
+                ["m", "n", "o", "p", "q"],
+                ["r", "s", "t", "u", "v"],
+            ],
+            [
+                "shared", "h", "m", "r", "d", "i", "n", "s", "a",
+                "e", "j", "o", "t", "b", "f", "k", "p", "u",
+            ],
+        ),
+        ([None, ["shared", "shared"], [], ["shared", "other"], [], None], ["shared", "other"]),
+        ([None, [], None, [], None, []], []),
+    ],
+    ids=["all-groups-represented", "duplicates-and-empty-group", "fewer-than-cap", "all-empty"],
+)
+def test_round_robin_evidence_selection(monkeypatch, groups, expected) -> None:
+    def results(group):
+        return [
+            SimpleNamespace(
+                title=key, url=f"https://example.com/{key}", content="Passage",
+                lastUpdatedAt=None, source=None,
+            )
+            for key in group
+        ] if group is not None else None
+
+    client = MagicMock()
+    client.__enter__.return_value = client
+    client.web.search.side_effect = [
+        SimpleNamespace(webResults=results(group)) for group in groups[::2]
+    ]
+    client.news.search.side_effect = [
+        SimpleNamespace(newsResults=results(group)) for group in groups[1::2]
+    ]
+    monkeypatch.setattr(retrieval, "WebIQClient", lambda **kwargs: client)
+
+    evidence = retrieval.retrieve_evidence("test-key", ["q1", "q2", "q3"], 5, "US")
+
+    assert [item.url for item in evidence] == [f"https://example.com/{key}" for key in expected]
+    assert [call.args for call in client.web.search.call_args_list] == [("q1",), ("q2",), ("q3",)]
+    assert [call.args for call in client.news.search.call_args_list] == [("q1",), ("q2",), ("q3",)]
+
+
 def test_queries_and_all_received_urls_are_logged_as_single_line_json(monkeypatch, caplog) -> None:
     query = "energy \"outlook\"\r\nfor 2026"
     url = "https://example.com/report?q=energy&year=2026"
