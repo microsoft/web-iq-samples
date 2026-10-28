@@ -73,4 +73,4 @@ fall back to caller credentials.
 
 - [Expose a delegated API scope](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-configure-app-expose-web-apis)
 - [APIM Entra token validation policy](https://learn.microsoft.com/en-us/azure/api-management/validate-azure-ad-token-policy)
-- [Web IQ authentication guidance](https://webiq.microsoft.ai/documentation/faq/)
+- [Web IQ authentication guidance](https://learn.microsoft.com/en-us/web-iq/get-started/authentication)

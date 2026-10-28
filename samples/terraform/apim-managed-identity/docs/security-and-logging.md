@@ -25,7 +25,7 @@ organization-specific policies if sensitive data might be submitted.
 - **Existing gateways:** inherited/global policies can independently log, cache, forward, or transform data. Review them before adapting this sample.
 - **Operations:** add appropriate rate limits, quotas, alerts, and budgets. `Developer_1` has no production SLA; APIM, monitoring, and Web IQ can incur separate charges.
 - **Terraform state:** configured variables, state, and plans can contain sensitive resource details. Keep them out of source control and use an access-controlled, encrypted remote backend with locking for shared deployments.
-- **Retrieved content:** the sample does not cache responses. Respect the [Web IQ Terms of Use](https://webiq.microsoft.ai/documentation/faq/) and review responses before sharing.
+- **Retrieved content:** the sample does not cache responses. Respect the [Web IQ Terms of Use](https://www.microsoft.com/en-us/webiq/webiq-legal) and review responses before sharing.
 
 ## Logging
 
@@ -58,6 +58,11 @@ API diagnostic, including error and custom-trace collection. It does **not**:
 Use your Azure Monitor retention/purge process to remove collected data when
 required. Review the [Web IQ privacy guidance](https://learn.microsoft.com/en-us/web-iq/resources/faq#privacy-and-data-handling)
 for service-side data handling.
+
+For regulated or sensitive workloads, ask your Microsoft account team about
+Web IQ Zero Query Logging, which suppresses query text from service telemetry.
+It is not self-service and requires approval for each use case. This is separate
+from APIM telemetry and is not enabled by this sample.
 
 ## Post-deployment checks
 

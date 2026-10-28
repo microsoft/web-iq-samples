@@ -94,7 +94,7 @@ Invoke-RestMethod `
   -Uri $gatewayUrl `
   -Headers @{ Authorization = "Bearer $token"; deptId = "finance" } `
   -ContentType "application/json" `
-  -Body '{"query":"Recent developments for customer 123-45-6789","maxResults":5,"contentFormat":"markdown"}'
+  -Body '{"query":"Recent developments for customer 123-45-6789","maxResults":5,"contentFormat":"passage"}'
 
 Remove-Variable token
 ```
@@ -112,7 +112,7 @@ curl --silent --show-error --fail \
   --header "Authorization: Bearer $token" \
   --header "deptId: finance" \
   --header "Content-Type: application/json" \
-  --data '{"query":"Recent developments for customer 123-45-6789","maxResults":5,"contentFormat":"markdown"}'
+  --data '{"query":"Recent developments for customer 123-45-6789","maxResults":5,"contentFormat":"passage"}'
 
 unset token
 ```
@@ -121,6 +121,11 @@ The endpoint forwards to `https://api.microsoft.ai/v3/search/web`. The synthetic
 SSN-like value is replaced with `[REDACTED-SSN]` before forwarding. Redaction
 inspects only `query` and is **not complete DLP**. The caller-supplied `deptId`
 is attribution, not authorization.
+
+The examples use `passage`, which works for every Web IQ application. Full
+document formats (`text`, `html`, and `markdown`) require full document access;
+without it, Web IQ returns HTTP 403 `AuthContentFormatForbidden`. See the
+[content-format FAQ](https://learn.microsoft.com/en-us/web-iq/resources/faq#content-formats).
 
 Use synthetic or approved public queries. Do not print tokens, put credentials
 or query text in URLs, or share unreviewed responses. See

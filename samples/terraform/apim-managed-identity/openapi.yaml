@@ -31,7 +31,7 @@ paths:
             example:
               query: recent energy market developments
               maxResults: 5
-              contentFormat: markdown
+              contentFormat: passage
       responses:
         '200':
           description: Web IQ search response.
