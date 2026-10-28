@@ -4,9 +4,9 @@ Runnable examples for building applications with Microsoft Web IQ.
 
 ## Project status
 
-This repository is being prepared for its initial release. No samples have been
-published yet. The current content is documentation and repository configuration;
-it does not include third-party code.
+This repository includes the runnable Market briefing sample listed below,
+alongside documentation and repository configuration. No third-party source code
+is vendored; the sample installs its dependencies separately.
 
 ## Samples
 
@@ -23,7 +23,7 @@ run instructions, and validation steps.
 
 | Sample | Language | Description |
 |---|---|---|
-| _Coming soon_ | | |
+| [Market briefing](samples/python/market-briefing/) | Python | Uses Web IQ web and news passages to generate a cited Markdown briefing. Azure OpenAI is the example model provider; other chat models require small integration changes. Model usage is a separate cost. Supports API-key or certificate-based Microsoft Entra authentication for Web IQ. |
 
 ## Contributing
 
