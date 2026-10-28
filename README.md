@@ -4,10 +4,11 @@ Runnable examples for building applications with Microsoft Web IQ.
 
 ## Project status
 
-This repository contains educational samples, not production-ready reference
-architectures. Review each sample's security, cost, and operational requirements
-before deployment. No third-party source code is included; dependencies are
-downloaded separately.
+This repository includes the runnable Market briefing and APIM managed identity
+gateway samples listed below. These are educational samples, not production-ready
+reference architectures. Review each sample's security, cost, and operational
+requirements before use or deployment. No third-party source code is vendored;
+the samples install their dependencies separately.
 
 ## Samples
 
@@ -24,6 +25,7 @@ run instructions, and validation steps.
 
 | Sample | Language | Description |
 |---|---|---|
+| [Market briefing](samples/python/market-briefing/) | Python | Uses Web IQ web and news passages to generate a cited Markdown briefing. Azure OpenAI is the example model provider; other chat models require small integration changes. Model usage is a separate cost. Supports API-key or certificate-based Microsoft Entra authentication for Web IQ. |
 | [APIM managed identity gateway](samples/terraform/apim-managed-identity/README.md) | Terraform | Protect Web IQ with Entra authentication, query redaction, and optional operational telemetry. |
 
 ## Telemetry
