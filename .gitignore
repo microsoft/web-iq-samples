@@ -431,3 +431,13 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# Terraform local configuration, state, plans, and provider downloads
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+*.tfplan
+crash.log
+crash.*.log
