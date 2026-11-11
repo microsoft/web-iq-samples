@@ -1,49 +1,74 @@
 # Web IQ named scopes (Rust)
 
 A self-contained Rust CLI for two scenarios: create/manage named scopes through
-the customer API, and call the web endpoint with a scope authored through either
-the API or the Scopes UI. Uses Azure Identity certificate authentication and
-`reqwest`, with explicit account/profile selection, strong conditional writes,
-and no automatic Web IQ retries or unscoped fallback.
+the Customer Management API, and call the web endpoint with a scope authored
+through either the API or the Scopes UI. Uses `reqwest` with explicit account/profile
+selection, strong conditional writes, and no automatic Web IQ retries or unscoped
+fallback. API-key search is the default build; certificate authentication is opt-in.
 
 ## Prerequisites and portal setup
 
 - A current stable [Rust toolchain](https://www.rust-lang.org/tools/install) with
   Cargo, Rustfmt, and Clippy; use Rust 1.99 or later with the included lockfile.
-- Native build tools for the certificate dependency. Azure Identity's
-  `client_certificate` feature uses OpenSSL; the manifest enables its source-build
-  (`vendored`) feature, so a separate OpenSSL installation is not needed.
-  Windows requires Visual Studio C++ Build Tools, CMake, and a native Windows
-  Perl such as [Strawberry Perl](https://strawberryperl.com). Run in a **Developer
-  PowerShell for Visual Studio** with `perl` on PATH. Git's reduced Perl distribution
-  is not sufficient. On macOS/Linux, provide a C/C++ toolchain, CMake, Perl, and
-  Make. The first build can take several minutes.
-- A provisioned Web IQ account enabled for named-scope management and scoped web
-  search; confirm your account's feature access.
-- For management, an existing Entra application with an RSA private-key PKCS12/PFX
-  and its public certificate registered in Entra. A human administrator must add
-  the workload identity and grant **CustomerApiAccess** on the billing account.
+- A C/C++ toolchain and CMake for the Rustls TLS provider. On Windows, use
+  **Developer PowerShell for Visual Studio** with C++ Build Tools installed;
+  macOS/Linux need the corresponding platform build tools.
+- A provisioned Web IQ account.
 - For search, an API key for the profile in the scope's billing account, or an
   Entra application separately bound to that profile with Web access.
 - PowerShell 7.3 or later for the Windows commands, including quoted ETag arguments.
 
-Follow the shared [portal setup guide](../../python/named-scopes/docs/portal-setup.md)
-for **Account settings > Application (Client) Ids > Add client ID**, the explicit
-CustomerApiAccess grant, separate **Profile Management** runtime binding, and
-**Scopes > New scope > Included / Excluded > Publish**.
+Follow Learn's [Create scopes guide](https://learn.microsoft.com/en-us/web-iq/guides/create-scopes)
+for portal authoring and workload authorization, and the
+[Scopes reference](https://learn.microsoft.com/en-us/web-iq/reference/scopes)
+for the Customer Management API. Runtime profile binding is described below.
 
 Management grants are not runtime bindings; runtime bindings are not management
 grants. CustomerApiAccess is broader than scope management. API-key search with a
 UI-authored scope needs no management credential.
 
-## Build and configure
+## Quickstart: API-key search without OpenSSL
 
-Run from this sample directory:
+An authorized author can create and publish `ProductDocs` in the Scopes UI before
+you run the sample. With that scope in the intended profile's billing account,
+run from this sample directory:
 
 ```powershell
-# Keep native dependency build paths below Windows toolchain limits.
+# Keep dependency build paths below Windows toolchain limits.
 $env:CARGO_TARGET_DIR = Join-Path $env:TEMP "webiq-scopes-target"
 cargo build --locked
+$env:WEBIQ_API_KEY = "<api-key-for-the-intended-webiq-profile>"
+cargo run --locked -- search ProductDocs "Microsoft Entra app authentication"
+```
+
+The default build does not include Azure Identity or OpenSSL and needs no Perl.
+The Rustls TLS provider still needs the build tools above; this is not a
+native-dependency-free build. Management and Entra search require the optional
+certificate feature below and fail explicitly if it was not compiled.
+
+The short target directory is a Windows build setting, not a credential; keep it
+set for subsequent Cargo commands in this shell. On macOS/Linux it is optional.
+Use `export NAME=value` for environment assignments; the Cargo commands are the
+same. Preserve the double quotes inside ETag arguments. Environment variables
+are a secret-delivery mechanism, not a vault.
+
+## Certificate configuration for management and Entra search
+
+For management, use an existing Entra application with an RSA private-key
+PKCS12/PFX and its public certificate registered in Entra. A human administrator
+must register the workload and grant **CustomerApiAccess** on the billing account.
+
+The optional `certificate-auth` Cargo feature uses Azure Identity's
+`ClientCertificateCredential`, which depends on OpenSSL. Its source-build
+(`vendored`) dependency needs native Perl in addition to the build tools above.
+On Windows, install a native distribution such as
+[Strawberry Perl](https://strawberryperl.com) and put `perl` on PATH in Developer
+PowerShell; Git's reduced Perl distribution is not sufficient. macOS/Linux need
+Perl and Make. A separate OpenSSL installation is not required, and the first
+certificate-enabled build can take several minutes.
+
+```powershell
+cargo build --locked --features certificate-auth
 $env:AZURE_TENANT_ID = "<directory-tenant-id>"
 $env:AZURE_CLIENT_ID = "<application-client-id>"
 $env:AZURE_CLIENT_CERTIFICATE_PATH = "<absolute-path-to-private-key.pfx>"
@@ -60,20 +85,14 @@ developer sign-in, client secrets, or managed identity as a fallback. Rust's
 certificate mode requires PKCS12/PFX with the RSA private key, not PEM or a
 public-only certificate. Keep it outside source control.
 
-The short target directory is a Windows build setting, not a credential; keep it
-set for subsequent Cargo commands in this shell. On macOS/Linux it is optional.
-Use `export NAME=value` for environment assignments; the Cargo
-commands are the same. Preserve the double quotes inside ETag arguments.
-Environment variables are a secret-delivery mechanism, not a vault.
-
 ## Scenario 1: create and manage scopes
 
 ```powershell
-cargo run --locked -- discover
+cargo run --locked --features certificate-auth -- discover
 $env:WEBIQ_BILLING_ACCOUNT_ID = "<billing-account-id-from-discovery>"
-cargo run --locked -- list --page-size 50
-cargo run --locked -- create ProductDocs --definition product-docs.json
-cargo run --locked -- get ProductDocs
+cargo run --locked --features certificate-auth -- list --page-size 50
+cargo run --locked --features certificate-auth -- create ProductDocs --definition product-docs.json
+cargo run --locked --features certificate-auth -- get ProductDocs
 ```
 
 Discovery calls `GET https://api.microsoft.ai/v1/customer/authorized-resources`.
@@ -95,9 +114,9 @@ and `excludeSites` must be arrays. Read/reconcile your desired changes with the
 current scope, edit both complete lists in the file, and then replace:
 
 ```powershell
-$snapshot = cargo run --quiet --locked -- get ProductDocs | ConvertFrom-Json
+$snapshot = cargo run --quiet --locked --features certificate-auth -- get ProductDocs | ConvertFrom-Json
 # Review the current definition and edit product-docs.json before continuing.
-cargo run --locked -- replace ProductDocs --definition product-docs.json --if-match $snapshot.etag
+cargo run --locked --features certificate-auth -- replace ProductDocs --definition product-docs.json --if-match $snapshot.etag
 ```
 
 Replace sends `PUT .../scopes/{name}` with the complete definition and exact strong
@@ -108,13 +127,17 @@ intentional. Empty inclusions broaden to **all non-excluded sources** and requir
 On `412`, read the latest scope/ETag, reconcile changes, and retry deliberately.
 Never use `*`, weak tags, stripped quotes, or a fresh ETag to blindly overwrite.
 Authoring success and new ETags are **not serving-readiness signals**. Changes
-propagate asynchronously; no fixed delay/status endpoint is assumed.
+should propagate in under 30 minutes, but there is no propagation SLA and this
+timing is not guaranteed. There is no readiness endpoint or scope versioning.
+Neither the authoring ETag nor runtime `scopeApplied: true` identifies the version
+currently served. Verify intended source behavior rather than treating a fixed
+wait as readiness. See [Search propagation](https://learn.microsoft.com/en-us/web-iq/reference/scopes#search-propagation).
 
 Optional cleanup, only after reviewing your dedicated sample scope:
 
 ```powershell
-$snapshot = cargo run --quiet --locked -- get ProductDocs | ConvertFrom-Json
-cargo run --locked -- delete ProductDocs --if-match $snapshot.etag
+$snapshot = cargo run --quiet --locked --features certificate-auth -- get ProductDocs | ConvertFrom-Json
+cargo run --locked --features certificate-auth -- delete ProductDocs --if-match $snapshot.etag
 ```
 
 Delete requires the current ETag and accepts `204` without parsing JSON. It also
@@ -151,13 +174,22 @@ This sends `POST https://api.microsoft.ai/v3/search/web` with `x-apikey` and:
 periods, underscores, and hyphens; lookup is case-insensitive. The sample always
 sends `failOnMissingScope: true` and never falls back to unscoped search. Result
 counts alone do not prove that the intended revision has propagated.
-The CLI prints a count, not the query, result URLs, or retrieved content.
+The CLI reports the count and service's optional `scopeApplied` outcome, not the
+query, result URLs, or retrieved content. `true` is reported as `scopeApplied: true`;
+it is not evidence that the latest revision is serving. `false` exits nonzero
+without an unscoped retry. A missing or `null` field is explicitly reported as
+unknown, not as scoped success. HTTP `200` and a result count alone do not prove
+scope application.
 
-For Entra search, configure the certificate variables for the application bound
-to the intended runtime profile:
+For Entra search, open **Profile Management** in the
+[Web IQ portal](https://webiq.microsoft.ai), select the profile in the scope's
+billing account, and use **Application (Client) IDs > Bind Application (Client) ID**
+to bind the runtime Entra application/client ID. Confirm Web access; this binding
+is separate from CustomerApiAccess. Configure the certificate variables for that
+application:
 
 ```powershell
-cargo run --locked -- search ProductDocs "Microsoft Entra app authentication" --auth entra
+cargo run --locked --features certificate-auth -- search ProductDocs "Microsoft Entra app authentication" --auth entra
 ```
 
 If bound to multiple profiles, append `--app-id "<webiq-appid-for-the-intended-profile>"`.
@@ -183,15 +215,19 @@ real resources.
 
 ```powershell
 cargo test --locked
+cargo test --locked --features certificate-auth
 cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
+cargo clippy --locked --all-targets --features certificate-auth -- -D warnings
 cargo run --locked -- --help
 ```
 
 Tests use an in-memory implementation of the HTTP transport and do not request
 tokens, contact Web IQ, or create grants/scopes. They cover wire contracts,
 management/runtime auth separation, pagination, ETags, conflicts, missing-scope
-failure, CLI safety, explicit empty lists, propagation messaging, and sanitized
-diagnostics. See the [Python guide](../../python/named-scopes/README.md) for additional
-service semantics, and **Documentation** in the [Web IQ portal](https://webiq.microsoft.ai)
-for guidance available to your account.
+failure, CLI safety, explicit empty lists, propagation messaging, true/false/unknown
+scope-application outcomes, feature selection, and sanitized diagnostics. The
+certificate-enabled checks require the optional native tools above. See
+[Create scopes](https://learn.microsoft.com/en-us/web-iq/guides/create-scopes)
+and the [Scopes reference](https://learn.microsoft.com/en-us/web-iq/reference/scopes)
+for portal authoring and service semantics.

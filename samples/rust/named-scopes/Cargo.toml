@@ -5,11 +5,15 @@ edition = "2024"
 license = "MIT"
 description = "Manage named Web IQ scopes and use them with the web endpoint."
 
+[features]
+default = []
+certificate-auth = ["dep:azure_core", "dep:azure_identity", "dep:openssl"]
+
 [dependencies]
-azure_core = "1.0"
-azure_identity = { version = "1.0", features = ["client_certificate"] }
+azure_core = { version = "1.0", optional = true }
+azure_identity = { version = "1.0", features = ["client_certificate"], optional = true }
 clap = { version = "4.5", features = ["derive"] }
-openssl = { version = "0.10", features = ["vendored"] }
+openssl = { version = "0.10", features = ["vendored"], optional = true }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

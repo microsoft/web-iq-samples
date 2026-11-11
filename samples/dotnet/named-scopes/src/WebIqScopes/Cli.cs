@@ -146,8 +146,10 @@ public static class Cli
                     await output.WriteLineAsync("Scope deleted from authoring storage; serving propagation is asynchronous.");
                     break;
                 case "search":
-                    int results = await client.SearchAsync(name, positional[1], appId);
-                    await output.WriteLineAsync($"Scoped search succeeded; {results} web results. Retrieved content was not printed.");
+                    var outcome = await client.SearchAsync(name, positional[1], appId);
+                    string status = outcome.ScopeApplied is true ? "scopeApplied: true" :
+                        "the service did not report whether the scope was applied";
+                    await output.WriteLineAsync($"Search returned {outcome.ResultCount} web results; {status}. Retrieved content was not printed.");
                     break;
             }
             return 0;

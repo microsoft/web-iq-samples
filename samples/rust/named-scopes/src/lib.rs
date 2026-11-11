@@ -1,7 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#[cfg(feature = "certificate-auth")]
 use azure_core::credentials::TokenCredential;
+#[cfg(feature = "certificate-auth")]
 use azure_identity::{ClientCertificateCredential, ClientCertificateCredentialOptions};
 use clap::{Parser, Subcommand};
 use reqwest::{
@@ -105,6 +107,12 @@ impl Definition {
 pub enum Authentication {
     ApiKey(String),
     Bearer(String),
+}
+
+#[derive(Debug, PartialEq)]
+pub struct SearchOutcome {
+    pub result_count: usize,
+    pub scope_applied: Option<bool>,
 }
 
 pub struct WireResponse {
@@ -398,7 +406,12 @@ impl<T: Transport> ScopesClient<T> {
         Ok(())
     }
 
-    pub async fn search(&self, name: &str, query: &str, app_id: Option<&str>) -> Result<usize> {
+    pub async fn search(
+        &self,
+        name: &str,
+        query: &str,
+        app_id: Option<&str>,
+    ) -> Result<SearchOutcome> {
         scope_name(name)?;
         if query.trim().is_empty() {
             return Err(fail("Search query cannot be empty."));
@@ -428,11 +441,30 @@ impl<T: Transport> ScopesClient<T> {
             )
             .await?;
         let body = Self::json(&response)?;
-        body.get("webResults")
+        let result_count = body
+            .get("webResults")
             .and_then(Value::as_array)
             .filter(|items| items.iter().all(Value::is_object))
             .map(Vec::len)
-            .ok_or_else(|| fail("Search response did not contain a webResults array."))
+            .ok_or_else(|| fail("Search response did not contain a webResults array."))?;
+        let scope_applied = match body.get("scopeApplied") {
+            None | Some(Value::Null) => None,
+            Some(Value::Bool(value)) => Some(*value),
+            _ => {
+                return Err(fail(
+                    "Search response contained an invalid scopeApplied value.",
+                ));
+            }
+        };
+        if scope_applied == Some(false) {
+            return Err(fail(
+                "Search returned scopeApplied: false; the named scope was not applied. Stopped without retrying unscoped.",
+            ));
+        }
+        Ok(SearchOutcome {
+            result_count,
+            scope_applied,
+        })
     }
 }
 
@@ -499,6 +531,7 @@ pub fn required(getenv: &impl Fn(&str) -> Option<String>, name: &str) -> Result<
 
 pub enum AuthSettings {
     ApiKey(String),
+    #[cfg(feature = "certificate-auth")]
     Certificate {
         tenant: String,
         client: String,
@@ -512,17 +545,25 @@ impl AuthSettings {
         if matches!(command, Command::Search { auth, .. } if auth == "api-key") {
             return Ok(Self::ApiKey(required(getenv, "WEBIQ_API_KEY")?));
         }
-        Ok(Self::Certificate {
-            tenant: required(getenv, "AZURE_TENANT_ID")?,
-            client: required(getenv, "AZURE_CLIENT_ID")?,
-            path: required(getenv, "AZURE_CLIENT_CERTIFICATE_PATH")?,
-            password: getenv("AZURE_CLIENT_CERTIFICATE_PASSWORD"),
-        })
+        #[cfg(feature = "certificate-auth")]
+        {
+            Ok(Self::Certificate {
+                tenant: required(getenv, "AZURE_TENANT_ID")?,
+                client: required(getenv, "AZURE_CLIENT_ID")?,
+                path: required(getenv, "AZURE_CLIENT_CERTIFICATE_PATH")?,
+                password: getenv("AZURE_CLIENT_CERTIFICATE_PASSWORD"),
+            })
+        }
+        #[cfg(not(feature = "certificate-auth"))]
+        Err(fail(
+            "Management and Entra search require rebuilding with --features certificate-auth.",
+        ))
     }
 
     pub async fn authenticate(self) -> Result<Authentication> {
         match self {
             Self::ApiKey(key) => Ok(Authentication::ApiKey(key)),
+            #[cfg(feature = "certificate-auth")]
             Self::Certificate {
                 tenant,
                 client,
@@ -663,9 +704,15 @@ pub async fn execute<T: Transport>(
             app_id,
             ..
         } => {
-            let count = client.search(name, query, app_id.as_deref()).await?;
+            let outcome = client.search(name, query, app_id.as_deref()).await?;
+            let status = if outcome.scope_applied == Some(true) {
+                "scopeApplied: true"
+            } else {
+                "the service did not report whether the scope was applied"
+            };
             Ok(format!(
-                "Scoped search succeeded; {count} web results. Retrieved content was not printed."
+                "Search returned {} web results; {status}. Retrieved content was not printed.",
+                outcome.result_count
             ))
         }
     }

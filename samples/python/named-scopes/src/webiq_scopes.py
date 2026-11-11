@@ -8,6 +8,7 @@ import re
 import sys
 from contextlib import ExitStack
 from pathlib import Path
+from typing import NamedTuple
 from urllib.parse import quote
 
 import httpx
@@ -20,6 +21,11 @@ TOKEN_SCOPE = "https://api.microsoft.ai/.default"
 
 class SampleError(Exception):
     """A diagnostic that is safe to display without service or credential details."""
+
+
+class SearchOutcome(NamedTuple):
+    result_count: int
+    scope_applied: bool | None
 
 
 def required_setting(name: str) -> str:
@@ -224,7 +230,7 @@ def discover(http: httpx.Client, token: str) -> list[object]:
 def search(
     http: httpx.Client, name: str, query: str, *,
     headers: dict[str, str], app_id: str | None = None,
-) -> int:
+) -> SearchOutcome:
     scope_name(name)
     if not query.strip():
         raise SampleError("The search query cannot be empty.")
@@ -239,10 +245,19 @@ def search(
             "contentFormat": "passage", "maxLength": 3000,
         },
     )
-    results = json_object(response).get("webResults")
+    body = json_object(response)
+    results = body.get("webResults")
     if not isinstance(results, list) or not all(isinstance(item, dict) for item in results):
         raise SampleError("The search response did not contain a webResults array.")
-    return len(results)
+    applied = body.get("scopeApplied")
+    if applied is not None and not isinstance(applied, bool):
+        raise SampleError("The search response contained an invalid scopeApplied value.")
+    if applied is False:
+        raise SampleError(
+            "Search returned scopeApplied: false; the named scope was not applied. "
+            "Stopped without retrying unscoped."
+        )
+    return SearchOutcome(len(results), applied)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -305,10 +320,17 @@ def main(argv: list[str] | None = None) -> int:
             headers = {"Authorization": f"Bearer {token}"}
         http = stack.enter_context(httpx.Client(timeout=30.0, follow_redirects=False))
         if args.command == "search":
-            count = search(
+            outcome = search(
                 http, args.name, args.query, headers=headers, app_id=args.app_id,
             )
-            print(f"Scoped search succeeded; {count} web results. Retrieved content was not printed.")
+            status = (
+                "scopeApplied: true" if outcome.scope_applied is True
+                else "the service did not report whether the scope was applied"
+            )
+            print(
+                f"Search returned {outcome.result_count} web results; {status}. "
+                "Retrieved content was not printed."
+            )
         elif args.command == "discover":
             assert token is not None
             customers = discover(http, token)

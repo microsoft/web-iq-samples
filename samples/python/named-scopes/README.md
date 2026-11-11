@@ -2,7 +2,7 @@
 
 Two independent scenarios for developers using named source filters with Web IQ:
 
-1. **Manage scopes through the customer API:** discover authorized billing accounts,
+1. **Manage scopes through the Customer Management API:** discover authorized billing accounts,
    list and read scopes, create a scope, replace its site lists, and delete it.
 2. **Consume a named scope through the web endpoint:** use the same search command
    whether someone created the scope through the API or through the portal's
@@ -13,19 +13,20 @@ uses explicit account/profile selection, conditional writes, and no automatic
 retries or unscoped fallback.
 
 The same scenarios are also available in [.NET](../../dotnet/named-scopes/README.md)
-and [Rust](../../rust/named-scopes/README.md). All three use the
-[shared portal setup guide](docs/portal-setup.md).
+and [Rust](../../rust/named-scopes/README.md). For portal setup and service semantics,
+see Learn's [Create scopes guide](https://learn.microsoft.com/en-us/web-iq/guides/create-scopes)
+and [Scopes reference](https://learn.microsoft.com/en-us/web-iq/reference/scopes).
 
 ## Prerequisites
 
 - Python 3.11 or later; PowerShell 7.3 or later for the Windows commands below.
-- A provisioned Web IQ account with **named-scope management and scoped web search
-  enabled**. Availability depends on your account; confirm access before running.
+- A provisioned Web IQ account.
 - For the management scenario, an existing Microsoft Entra application with an
   organization-approved certificate/private key. A human administrator must first
   add that workload identity to the intended billing account and grant
   **CustomerApiAccess** in the [Web IQ portal](https://webiq.microsoft.ai).
-  See the [portal setup guide](docs/portal-setup.md).
+  See [Create scopes](https://learn.microsoft.com/en-us/web-iq/guides/create-scopes)
+  for portal setup and workload authorization.
 - For search, a Web IQ API key for the intended profile, or an Entra application
   separately bound to that profile with Web access. The profile must belong to
   the billing account that owns the scope.
@@ -54,9 +55,11 @@ values when passing them to your shell.
 
 ### Register and configure the management workload
 
-Complete [Account settings: add the management workload](docs/portal-setup.md#account-settings-add-the-management-workload)
-first. The administrator grants access to an existing identity; the sample does
-not create an Entra application or grant itself permissions.
+Complete the workload-identity setup in
+[Create scopes](https://learn.microsoft.com/en-us/web-iq/guides/create-scopes)
+first. A human BillingAccount Admin or inherited Customer Admin grants
+CustomerApiAccess to the existing application on the intended billing account.
+The sample does not create an Entra application or grant itself permissions.
 
 Configure the certificate in your current shell. Use the **application/client
 ID**, not an object ID. Keep the private-key file outside the repository:
@@ -149,10 +152,12 @@ retries a write automatically.
 ### Propagation and optional cleanup
 
 A successful write or a new ETag acknowledges **authoring storage**, not serving
-readiness. Scope changes propagate asynchronously; there is no fixed wait time
-or serving-status API used by this sample. Verify the intended source behavior
-with scoped queries before depending on an update. A search result count alone
-is not proof that a particular revision has propagated.
+readiness. Scope changes should propagate in under 30 minutes, but there is no
+propagation SLA and this timing is not guaranteed. There is no readiness endpoint
+or scope versioning. The authoring ETag and runtime `scopeApplied: true` do not
+identify the version currently served. Verify the intended source behavior with
+scoped queries before depending on an update; do not treat a fixed wait as proof
+of readiness. See [Search propagation](https://learn.microsoft.com/en-us/web-iq/reference/scopes#search-propagation).
 
 Delete only the dedicated sample scope when no caller needs it, after reviewing
 its current definition:
@@ -170,7 +175,7 @@ before retrying instead of assuming it failed.
 ## Scenario 2: search with an API- or UI-authored named scope
 
 You can skip scenario 1 entirely if an administrator or author has
-[created and published a scope in the UI](docs/portal-setup.md#scopes-create-and-publish-in-the-ui).
+[created and published a scope in the UI](https://learn.microsoft.com/en-us/web-iq/guides/create-scopes).
 There is no separate runtime selector for UI-created scopes.
 
 Use the API key for the **profile associated with the scope's billing account**:
@@ -207,16 +212,27 @@ lookup is case-insensitive. `failOnMissingScope` remains `true`: a missing or
 unavailable scope fails rather than silently searching the unscoped web. This
 sample does not expose a flag to disable that behavior.
 
-The command prints only the number of web results, not queries, URLs, passages,
-tokens, or raw search responses. To inspect retrieved data in your own application,
-consume the response's `webResults` array at the `search` function, keeping it
-out of logs and reviewing it before sharing.
+The command reports the result count and the service's optional `scopeApplied`
+outcome, not queries, URLs, passages, tokens, or raw search responses:
+
+| Response outcome | CLI behavior |
+| --- | --- |
+| `true` | Prints `scopeApplied: true`; this does not prove that the latest revision is serving. |
+| `false` | Exits nonzero because the named scope was not applied; it does not retry unscoped. |
+| Missing or `null` | Says the service did not report whether the scope was applied, without claiming scoped success. |
+
+HTTP `200` and a result count alone do not prove scope application. To inspect
+retrieved data in your own application, consume the response's `webResults` array
+in `search`, keeping it out of logs and reviewing it before sharing.
 
 ### Runtime Entra authentication instead of an API key
 
-Follow [Profile Management: bind the runtime application](docs/portal-setup.md#profile-management-bind-the-runtime-application)
-and configure the certificate variables above for that runtime application.
-It can be different from the management application. Then run:
+In the [Web IQ portal](https://webiq.microsoft.ai), open **Profile Management**,
+select the profile in the scope's billing account, and use **Application (Client)
+IDs > Bind Application (Client) ID** to bind the runtime application's Entra
+application/client ID. Confirm Web access for that profile. This is separate from
+CustomerApiAccess, and the runtime application can differ from the management
+application. Configure its certificate variables above, then run:
 
 ```powershell
 webiq-scopes search ProductDocs "Microsoft Entra app authentication" --auth entra
@@ -275,7 +291,9 @@ Tests use `httpx.MockTransport` and mocked certificate acquisition. They do not
 request tokens, contact Web IQ, create grants, or mutate live scopes. They cover
 exact route/body/header shapes, both runtime authentication modes, pagination,
 ETags, full replacements, explicit empty lists, propagation messaging, missing
-scope failure, sanitized errors, and no automatic retries.
+scope failure, true/false/unknown scope-application outcomes, sanitized errors,
+and no automatic retries.
 
-Open **Documentation** in the [Web IQ portal](https://webiq.microsoft.ai) for
-authentication and web endpoint guidance available to your account.
+See [Create scopes](https://learn.microsoft.com/en-us/web-iq/guides/create-scopes)
+and the [Scopes reference](https://learn.microsoft.com/en-us/web-iq/reference/scopes)
+for portal authoring and the Customer Management API.

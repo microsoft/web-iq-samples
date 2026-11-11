@@ -224,13 +224,14 @@ def test_search_uses_one_scope_string_and_fail_closed_request(auth) -> None:
         return httpx.Response(200, json={
             "webResults": [{"title": "PRIVATE-TITLE", "content": "PRIVATE-CONTENT"}],
             "traceId": "demo-trace",
+            "scopeApplied": True,
         })
 
     with httpx.Client(transport=httpx.MockTransport(respond)) as http:
         assert sample.search(
             http, "ProductDocs", "Microsoft Entra app authentication", headers=headers,
             app_id="demo-webiq-appid" if auth == "entra" else None,
-        ) == 1
+        ) == sample.SearchOutcome(1, True)
     assert len(requests) == 1
     request = requests[0]
     assert request.method == "POST"
@@ -341,6 +342,8 @@ def test_cli_search_api_key_does_not_require_management_or_certificate(monkeypat
     assert len(requests) == 1
     captured = capsys.readouterr()
     assert "1 web results" in captured.out
+    assert "the service did not report whether the scope was applied" in captured.out
+    assert "Scoped search succeeded" not in captured.out
     assert "PRIVATE" not in captured.out + captured.err
 
 
@@ -360,6 +363,63 @@ def test_cli_entra_search_selects_webiq_profile_and_requests_correct_token(monke
     assert dict(requests[0].url.params) == {"APPID": "demo-webiq-appid"}
     assert "x-apikey" not in requests[0].headers
     assert "IGNORED-KEY" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("outcome", [True, None, "omitted"])
+def test_cli_reports_scope_application_without_inference(monkeypatch, capsys, outcome) -> None:
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        body = {"webResults": [{"content": "PRIVATE-CONTENT"}]}
+        if outcome != "omitted":
+            body["scopeApplied"] = outcome
+        return httpx.Response(200, json=body)
+
+    install_fake_auth_and_http(monkeypatch, respond)
+    monkeypatch.setenv("WEBIQ_API_KEY", "PRIVATE-KEY")
+    assert sample.main(["search", "ProductDocs", "PRIVATE-QUERY"]) == 0
+    output = capsys.readouterr()
+    expected = (
+        "scopeApplied: true" if outcome is True
+        else "the service did not report whether the scope was applied"
+    )
+    assert expected in output.out
+    assert "PRIVATE" not in output.out + output.err
+    assert "Scoped search succeeded" not in output.out
+    assert len(requests) == 1
+
+
+def test_scope_not_applied_exits_nonzero_without_retry_or_content(monkeypatch, capsys) -> None:
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(200, json={
+            "webResults": [{"content": "PRIVATE-CONTENT"}], "scopeApplied": False,
+        })
+
+    install_fake_auth_and_http(monkeypatch, respond)
+    monkeypatch.setenv("WEBIQ_API_KEY", "PRIVATE-KEY")
+    monkeypatch.setattr("sys.argv", ["webiq-scopes", "search", "ProductDocs", "PRIVATE-QUERY"])
+    with pytest.raises(SystemExit) as caught:
+        sample.entrypoint()
+    assert caught.value.code == 1
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert "scopeApplied: false" in output.err
+    assert "PRIVATE" not in output.err
+    assert len(requests) == 1
+    assert json.loads(requests[0].content)["failOnMissingScope"] is True
+
+
+@pytest.mark.parametrize("outcome", ["true", "false", 0, 1, [], {}])
+def test_invalid_scope_application_type_is_an_explicit_failure(outcome) -> None:
+    with httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(
+        200, json={"webResults": [], "scopeApplied": outcome},
+    ))) as http:
+        with pytest.raises(sample.SampleError, match="invalid scopeApplied"):
+            sample.search(http, "ProductDocs", "query", headers={"x-apikey": "key"})
 
 
 def test_cli_empty_includes_need_deliberate_acknowledgement(monkeypatch, tmp_path, capsys) -> None:

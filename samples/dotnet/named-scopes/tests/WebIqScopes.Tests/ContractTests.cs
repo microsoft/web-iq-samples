@@ -198,7 +198,7 @@ public sealed class ContractTests
     {
         using var handler = new Handler(_ => Response(200, """{"webResults":[{"content":"PRIVATE-CONTENT"}]}"""));
         using var http = new HttpClient(handler);
-        Assert.Equal(1, await new ScopesClient(http, "PRIVATE-CREDENTIAL", apiKey).SearchAsync(
+        Assert.Equal(new SearchOutcome(1, null), await new ScopesClient(http, "PRIVATE-CREDENTIAL", apiKey).SearchAsync(
             "ProductDocs", "PRIVATE-QUERY", apiKey ? null : "demo-webiq-appid"));
         var request = Assert.Single(handler.Requests);
         Assert.Equal("/v3/search/web", request.Url.AbsolutePath);
@@ -247,6 +247,8 @@ public sealed class ContractTests
         Assert.Equal(1, await Cli.RunAsync(["list"], output, errors, Environment, http, NoToken));
         Assert.Contains("WEBIQ_BILLING_ACCOUNT_ID", errors.ToString());
         Assert.Equal(0, await Cli.RunAsync(["search", "ProductDocs", "PRIVATE-QUERY"], output, errors, Environment, http, NoToken));
+        Assert.Contains("the service did not report whether the scope was applied", output.ToString());
+        Assert.DoesNotContain("Scoped search succeeded", output.ToString());
         Assert.DoesNotContain("PRIVATE", output.ToString() + errors);
         Assert.Single(handler.Requests);
     }
@@ -284,6 +286,57 @@ public sealed class ContractTests
         using var handler = new Handler(_ => Response(200, body));
         using var http = new HttpClient(handler);
         await Assert.ThrowsAsync<SampleException>(() => new ScopesClient(http, "key", true).SearchAsync("ProductDocs", "query"));
+    }
+
+    [Theory]
+    [InlineData("true", "scopeApplied: true")]
+    [InlineData("null", "the service did not report whether the scope was applied")]
+    [InlineData(null, "the service did not report whether the scope was applied")]
+    public async Task CliReportsScopeApplicationWithoutInference(string? value, string expected)
+    {
+        string applied = value is null ? "" : ",\"scopeApplied\":" + value;
+        using var handler = new Handler(_ => Response(200, "{\"webResults\":[{\"content\":\"PRIVATE-CONTENT\"}]" + applied + "}"));
+        using var http = new HttpClient(handler);
+        using var output = new StringWriter();
+        using var errors = new StringWriter();
+        Assert.Equal(0, await Cli.RunAsync(["search", "ProductDocs", "PRIVATE-QUERY"], output, errors,
+            key => key == "WEBIQ_API_KEY" ? "PRIVATE-KEY" : null, http));
+        Assert.Contains(expected, output.ToString());
+        Assert.DoesNotContain("Scoped search succeeded", output.ToString());
+        Assert.DoesNotContain("PRIVATE", output.ToString() + errors);
+        Assert.Single(handler.Requests);
+    }
+
+    [Fact]
+    public async Task ScopeNotAppliedExitsNonzeroWithoutRetryOrContent()
+    {
+        using var handler = new Handler(_ => Response(200, """{"webResults":[{"content":"PRIVATE-CONTENT"}],"scopeApplied":false}"""));
+        using var http = new HttpClient(handler);
+        using var output = new StringWriter();
+        using var errors = new StringWriter();
+        Assert.Equal(1, await Cli.RunAsync(["search", "ProductDocs", "PRIVATE-QUERY"], output, errors,
+            key => key == "WEBIQ_API_KEY" ? "PRIVATE-KEY" : null, http));
+        Assert.Empty(output.ToString());
+        Assert.Contains("scopeApplied: false", errors.ToString());
+        Assert.DoesNotContain("PRIVATE", errors.ToString());
+        Assert.Single(handler.Requests);
+    }
+
+    [Theory]
+    [InlineData("\"true\"")]
+    [InlineData("\"false\"")]
+    [InlineData("0")]
+    [InlineData("1")]
+    [InlineData("[]")]
+    [InlineData("{}")]
+    public async Task InvalidScopeApplicationTypeFailsExplicitly(string value)
+    {
+        using var handler = new Handler(_ => Response(200, "{\"webResults\":[],\"scopeApplied\":" + value + "}"));
+        using var http = new HttpClient(handler);
+        var error = await Assert.ThrowsAsync<SampleException>(() =>
+            new ScopesClient(http, "key", true).SearchAsync("ProductDocs", "query"));
+        Assert.Contains("invalid scopeApplied", error.Message);
+        Assert.Single(handler.Requests);
     }
 
     [Theory]

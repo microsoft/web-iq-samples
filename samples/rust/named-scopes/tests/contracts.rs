@@ -6,9 +6,9 @@ use reqwest::{Request, header::IF_MATCH};
 use serde_json::{Value, json};
 use std::{cell::RefCell, collections::VecDeque, path::PathBuf};
 use webiq_scopes::{
-    Arguments, AuthSettings, Authentication, Command, Definition, ScopesClient, TOKEN_SCOPE,
-    Transport, TransportError, WireResponse, execute, required, scope_name, strong_etag,
-    validate_command,
+    Arguments, AuthSettings, Authentication, Command, Definition, ScopesClient, SearchOutcome,
+    TOKEN_SCOPE, Transport, TransportError, WireResponse, execute, required, scope_name,
+    strong_etag, validate_command,
 };
 
 const ACCOUNT: &str = "demo-account";
@@ -355,7 +355,10 @@ async fn both_search_auth_modes_use_one_scope_string_and_fail_closed_body() {
                 .search("ProductDocs", "PRIVATE-QUERY", app_id)
                 .await
                 .unwrap(),
-            1
+            SearchOutcome {
+                result_count: 1,
+                scope_applied: None
+            }
         );
         let requests = mock.requests.borrow();
         assert_eq!(requests.len(), 1);
@@ -444,6 +447,7 @@ fn api_key_search_requires_neither_management_settings_nor_certificate() {
     assert_eq!(TOKEN_SCOPE, "https://api.microsoft.ai/.default");
 }
 
+#[cfg(feature = "certificate-auth")]
 #[test]
 fn certificate_auth_requires_explicit_settings_without_chain_fallback() {
     for missing in [
@@ -531,6 +535,8 @@ async fn cli_outputs_preserve_etags_account_selection_and_search_privacy() {
     };
     let output = execute(&client, &search, None, None).await.unwrap();
     assert!(output.contains("1 web results") && !output.contains("PRIVATE"));
+    assert!(output.contains("the service did not report whether the scope was applied"));
+    assert!(!output.contains("Scoped search succeeded"));
 }
 
 #[test]
@@ -584,6 +590,7 @@ async fn authoring_success_is_not_serving_readiness() {
     assert!(output.contains("asynchronous") && output.contains("not a readiness signal"));
 }
 
+#[cfg(feature = "certificate-auth")]
 #[tokio::test]
 async fn invalid_certificate_file_is_reported_without_token_request_or_private_details() {
     let file = tempfile::NamedTempFile::new().unwrap();
@@ -597,4 +604,110 @@ async fn invalid_certificate_file_is_reported_without_token_request_or_private_d
     let error = settings.authenticate().await.err().unwrap().to_string();
     assert!(error.contains("Cannot load certificate credentials"));
     assert!(!error.contains("PRIVATE"));
+}
+
+#[cfg(not(feature = "certificate-auth"))]
+#[test]
+fn certificate_commands_require_explicit_build_feature_before_reading_credentials() {
+    let search = Command::Search {
+        name: "ProductDocs".to_owned(),
+        query: "query".to_owned(),
+        auth: "entra".to_owned(),
+        app_id: None,
+    };
+    for command in [Command::Discover, search] {
+        let error = AuthSettings::read(&command, &|_| panic!("No credential reads expected"))
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(error.contains("--features certificate-auth"));
+    }
+}
+
+#[test]
+fn required_settings_reject_empty_and_placeholder_values() {
+    for value in ["", " ", "<placeholder>"] {
+        assert!(required(&|_| Some(value.to_owned()), "SETTING").is_err());
+    }
+}
+
+#[tokio::test]
+async fn cli_reports_scope_application_without_inference() {
+    for value in [Some(json!(true)), Some(Value::Null), None] {
+        let mut body = json!({"webResults":[{"content":"PRIVATE-CONTENT"}]});
+        if let Some(value) = &value {
+            body["scopeApplied"] = value.clone();
+        }
+        let mock = Mock::new(vec![response(200, body, None)]);
+        let client = ScopesClient::new(&mock, Authentication::ApiKey("PRIVATE-KEY".to_owned()));
+        let command = Command::Search {
+            name: "ProductDocs".to_owned(),
+            query: "PRIVATE-QUERY".to_owned(),
+            auth: "api-key".to_owned(),
+            app_id: None,
+        };
+        let output = execute(&client, &command, None, None).await.unwrap();
+        let expected = if value == Some(json!(true)) {
+            "scopeApplied: true"
+        } else {
+            "the service did not report whether the scope was applied"
+        };
+        assert!(output.contains(expected));
+        assert!(!output.contains("PRIVATE") && !output.contains("Scoped search succeeded"));
+        assert_eq!(mock.requests.borrow().len(), 1);
+    }
+}
+
+#[tokio::test]
+async fn scope_not_applied_fails_without_retry_or_content() {
+    let mock = Mock::new(vec![response(
+        200,
+        json!({
+            "webResults":[{"content":"PRIVATE-CONTENT"}], "scopeApplied": false,
+        }),
+        None,
+    )]);
+    let client = ScopesClient::new(&mock, Authentication::ApiKey("PRIVATE-KEY".to_owned()));
+    let command = Command::Search {
+        name: "ProductDocs".to_owned(),
+        query: "PRIVATE-QUERY".to_owned(),
+        auth: "api-key".to_owned(),
+        app_id: None,
+    };
+    let error = execute(&client, &command, None, None)
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("scopeApplied: false"));
+    assert!(!error.contains("PRIVATE"));
+    assert_eq!(mock.requests.borrow().len(), 1);
+    assert_eq!(body(&mock.requests.borrow()[0])["failOnMissingScope"], true);
+}
+
+#[tokio::test]
+async fn invalid_scope_application_types_fail_explicitly() {
+    for value in [
+        json!("true"),
+        json!("false"),
+        json!(0),
+        json!(1),
+        json!([]),
+        json!({}),
+    ] {
+        let mock = Mock::new(vec![response(
+            200,
+            json!({
+                "webResults": [], "scopeApplied": value,
+            }),
+            None,
+        )]);
+        let client = ScopesClient::new(&mock, Authentication::ApiKey("key".to_owned()));
+        let error = client
+            .search("ProductDocs", "query", None)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("invalid scopeApplied"));
+        assert_eq!(mock.requests.borrow().len(), 1);
+    }
 }

@@ -10,6 +10,8 @@ namespace WebIqScopes;
 
 public sealed class SampleException(string message) : Exception(message);
 
+public sealed record SearchOutcome(int ResultCount, bool? ScopeApplied);
+
 public sealed record ScopeDefinition(
     [property: JsonPropertyName("includeSites")] string[] IncludeSites,
     [property: JsonPropertyName("excludeSites")] string[] ExcludeSites)
@@ -204,7 +206,7 @@ public sealed class ScopesClient(HttpClient http, string credential, bool apiKey
         using var response = await SendAsync(HttpMethod.Delete, ScopePath(account, name), 204, etag: etag);
     }
 
-    public async Task<int> SearchAsync(string name, string query, string? appId = null)
+    public async Task<SearchOutcome> SearchAsync(string name, string query, string? appId = null)
     {
         ScopeName(name);
         if (string.IsNullOrWhiteSpace(query))
@@ -221,6 +223,19 @@ public sealed class ScopesClient(HttpClient http, string credential, bool apiKey
         if (body.ValueKind != JsonValueKind.Object || !body.TryGetProperty("webResults", out var results) ||
             results.ValueKind != JsonValueKind.Array || results.EnumerateArray().Any(item => item.ValueKind != JsonValueKind.Object))
             throw new SampleException("Search response did not contain a webResults array.");
-        return results.GetArrayLength();
+        bool? applied = null;
+        if (body.TryGetProperty("scopeApplied", out var scopeApplied))
+        {
+            applied = scopeApplied.ValueKind switch
+            {
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                JsonValueKind.Null => null,
+                _ => throw new SampleException("Search response contained an invalid scopeApplied value.")
+            };
+        }
+        if (applied is false)
+            throw new SampleException("Search returned scopeApplied: false; the named scope was not applied. Stopped without retrying unscoped.");
+        return new SearchOutcome(results.GetArrayLength(), applied);
     }
 }
