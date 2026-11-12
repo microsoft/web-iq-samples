@@ -9,7 +9,7 @@ The goal is to showcase Web IQ's capabilities and reusable server-side integrati
 
 The React UI uses [assistant-ui](https://www.assistant-ui.com/) for the conversation, composer, and Markdown rendering. One Express backend handles retrieval and session memory. No UI cloud account, database, or telemetry service is required.
 
-The browser does not authenticate to the backend. The backend uses environment-provided API keys for Web IQ and Azure OpenAI.
+The browser does not authenticate to the backend. The backend uses a certificate-based Microsoft Entra application identity for Web IQ and an environment-provided API key for Azure OpenAI.
 
 ## One retrieval API for the whole movie night
 
@@ -29,7 +29,7 @@ React + assistant-ui
 Express TypeScript backend
         |-- in-memory session history and movie preferences
         |-- LLM query planner using checked-in Web IQ guidance
-        |-- WEBIQ_API_KEY for Web IQ Auto (web, news, images, videos)
+        |-- Entra certificate credential for Web IQ Auto (web, news, images, videos)
         |-- AZURE_OPENAI_API_KEY for grounded responses
         v
 Azure OpenAI grounded response with citations
@@ -42,7 +42,8 @@ The assistant-ui adapter sends only the new user message and session ID to the e
 ## Prerequisites
 
 - Node.js 22.12 or later on the 22.x line, or Node.js 24+
-- A Web IQ API key enabled for Auto
+- A Microsoft Entra app registration mapped to a Web IQ AppID enabled for Auto
+- An RSA certificate registered on that application, with its certificate and private key available to the backend in PEM format
 - An Azure OpenAI deployment
 - An Azure OpenAI API key
 
@@ -76,14 +77,49 @@ Edit `config.json`:
 }
 ```
 
-Set both API keys in the environment:
+### Web IQ authentication
+
+The backend follows the certificate-based app identity pattern used by [Market Briefing](../../python/market-briefing/docs/authentication.md). It explicitly creates Azure Identity's `ClientCertificateCredential` and requests `https://api.microsoft.ai/.default`. The shared `getBearerTokenProvider` handles in-memory token caching and refresh; each Auto request uses the current token in its `Authorization: Bearer` header.
+
+The application identity must resolve to one provisioned Web IQ AppID with Auto enabled. A token alone does not establish access: for a 401 or 403, check the application mapping and entitlements instead of repeatedly signing in.
+
+Set the following in the same PowerShell session that runs the backend:
 
 ```powershell
-$env:WEBIQ_API_KEY = "<your Web IQ API key>"
+$env:AZURE_TENANT_ID = "<directory-tenant-id>"
+$env:AZURE_CLIENT_ID = "<application-client-id>"
+$env:AZURE_CLIENT_CERTIFICATE_PATH = "C:\path\to\webiq.pem"
 $env:AZURE_OPENAI_API_KEY = "<your Azure OpenAI API key>"
 ```
 
-The keys are not stored in `config.json`. Replace any resource-specific values in the local file with your own settings; the example above is the portable configuration template.
+`AZURE_CLIENT_ID` is the application's client ID, not its object ID. The PEM must contain both the public certificate and its private key; a public-only CER file is not enough. For an encrypted PEM, also provide its existing private-key password without putting it in command history:
+
+```powershell
+$password = Read-Host "Existing PEM private-key password" -AsSecureString
+$env:AZURE_CLIENT_CERTIFICATE_PASSWORD = (
+  [System.Net.NetworkCredential]::new("", $password).Password
+)
+```
+
+Omit `AZURE_CLIENT_CERTIFICATE_PASSWORD` only for an unencrypted PEM. After finishing all runs in this shell, clear the process-local password:
+
+```powershell
+Remove-Item Env:\AZURE_CLIENT_CERTIFICATE_PASSWORD -ErrorAction SilentlyContinue
+```
+
+Unlike the Python credential used by Market Briefing, the JavaScript credential accepts PEM, not PFX/PKCS12. If your existing certificate is in a PFX, use an approved conversion tool or OpenSSL to export the same certificate and private key to an encrypted PEM **outside the repository**:
+
+```powershell
+openssl pkcs12 -in "C:\path\to\webiq.pfx" -out "C:\path\to\webiq.pem" -clcerts
+```
+
+OpenSSL prompts for the existing PFX password and a password to encrypt the output private key; use the latter as `AZURE_CLIENT_CERTIFICATE_PASSWORD`. Do not add `-nodes` or print the PEM contents. The same registered public certificate can be reused; converting the file format does not create a new application identity.
+
+There is no credential-chain fallback: Azure CLI sign-in, managed identity, `AZURE_CLIENT_SECRET`, and `WEBIQ_API_KEY` are not used for Web IQ. Missing required environment settings stop startup; certificate and token errors fail the request rather than switching identities. Azure OpenAI remains separately API-key authenticated.
+
+Use your organization's approved certificate issuance and secret-delivery mechanisms. Restrict access to the private-key file, monitor expiration, and rotate the registered certificate and deployed private key together. Never commit certificates, private keys, passwords, tokens, or API keys, or put them in `config.json`, logs, or container images. The sample does not provision applications, renew certificates, or retrieve them from a vault. See the [JavaScript certificate credential reference](https://learn.microsoft.com/en-us/javascript/api/@azure/identity/clientcertificatecredential).
+
+Replace resource-specific values in your local configuration with your own settings; the JSON above is the portable configuration template.
 
 Alternatively, set `MOVIE_CHAT_CONFIG` to the path of a separate configuration file. For a development session, disable detailed retrieval logging **before starting the server**:
 
@@ -279,7 +315,7 @@ The sample focuses on server-side Web IQ integration and a useful demonstration 
 |---|---|---|
 | Network access | The backend calls `listen(port)` without an explicit loopback host. A localhost URL does not guarantee loopback-only binding. | Keep local runs behind appropriate firewall controls. For hosting, supply HTTPS and restrict ingress to the intended audience; do not expose the unprotected API directly to an untrusted network. |
 | Abuse and cost | Request/message sizes and retrieval budgets are bounded, but no server-side rate or concurrency limiter is included. Disabling Send in the UI is only a UX measure. | Limit request frequency, simultaneous work, and upstream usage for the deployment. |
-| Credentials | Web IQ and Azure OpenAI keys are read from `WEBIQ_API_KEY` and `AZURE_OPENAI_API_KEY`, never sent to the browser. | Provision and rotate credentials securely, restrict upstream permissions, and avoid putting secrets in source control or client bundles. |
+| Credentials | Web IQ uses an explicit Entra certificate credential and server-side bearer tokens. Azure OpenAI reads `AZURE_OPENAI_API_KEY`. Neither is sent to the browser. | Provision and rotate the application certificate and API key securely, restrict upstream permissions and private-key file access, and avoid putting secrets in source control or client bundles. |
 | Sessions | History/preferences are process-local and expire after inactivity. Session IDs are not tied to authenticated identities. | Apply the host's session-access policy. For multiple instances, choose intentional routing or an appropriate shared state design; do not persist raw retrieval evidence as session state. |
 | Privacy and retention | Queries and cited URLs can be logged; raw evidence still reaches browser diagnostics. No privacy notice or automatic log-retention policy is included. | Address the Content-handling constraints above, provide appropriate privacy notices, and establish permitted collection, access, redaction, and retention policies. |
 | Publisher and media use | HTTP(S) links and safe Markdown rendering constrain rendering, not publisher rights or source eligibility. Third-party media loads from its provider. | Review source-owner restrictions, applicable news obligations, media rights, and third-party privacy behavior for the intended use. |

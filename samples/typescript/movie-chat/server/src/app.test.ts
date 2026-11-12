@@ -134,7 +134,7 @@ describe("createApp", () => {
       await new Promise((resolve) => setTimeout(resolve, query === "Arrival" ? 10 : 0));
       return Response.json({ traceId: `${query}-trace`, results: [] });
     }));
-    const webIq = new WebIqClient("key", "https://api.microsoft.ai/v3", 18000, 30);
+    const webIq = new WebIqClient(async () => "test-access-token", "https://api.microsoft.ai/v3", 18000, 30);
     const service = {
       chat: vi.fn(async (_sessionId: string | undefined, message: string) => {
         await webIq.search([{ query: message }]);

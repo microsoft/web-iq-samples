@@ -10,18 +10,19 @@ import { MovieChatService } from "./movieChatService.js";
 import { MovieModel } from "./movieModel.js";
 import { loadQueryGuidance, QueryPlanner } from "./queryPlanner.js";
 import { SessionStore } from "./sessionStore.js";
+import { createWebIqTokenProvider } from "./webIqAuth.js";
 import { WebIqClient } from "./webIqClient.js";
 
 const config = await loadConfig();
 const queryGuidance = await loadQueryGuidance();
-const webIqApiKey = requiredEnvironmentVariable("WEBIQ_API_KEY");
+const webIqTokenProvider = createWebIqTokenProvider();
 const azureOpenAiApiKey = requiredEnvironmentVariable("AZURE_OPENAI_API_KEY");
 const sessions = new SessionStore(
   config.server.sessionTtlMinutes,
   config.server.maxHistoryMessages,
 );
 const webIq = new WebIqClient(
-  webIqApiKey,
+  webIqTokenProvider,
   config.webiq.baseUrl,
   config.webiq.maxResponseLength,
   config.webiq.maxSources,

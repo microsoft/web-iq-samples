@@ -318,6 +318,11 @@ dist/
 .vite/
 *.tsbuildinfo
 
+# Local Movie Night certificate material
+samples/typescript/movie-chat/**/*.pem
+samples/typescript/movie-chat/**/*.key
+samples/typescript/movie-chat/**/*.p12
+
 # Visual Studio 6 build log
 *.plg
 

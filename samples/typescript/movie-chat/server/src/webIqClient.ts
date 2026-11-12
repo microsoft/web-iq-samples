@@ -87,7 +87,7 @@ export function mergeSources(
 
 export class WebIqClient {
   constructor(
-    private readonly apiKey: string,
+    private readonly getAccessToken: () => Promise<string>,
     private readonly baseUrl: string,
     private readonly maxResponseLength: number,
     private readonly maxSources: number,
@@ -123,7 +123,7 @@ export class WebIqClient {
       const response = await fetch(`${this.baseUrl.replace(/\/$/, "")}/auto`, {
         method: "POST",
         headers: {
-          "x-apikey": this.apiKey,
+          Authorization: `Bearer ${await this.getAccessToken()}`,
           "content-type": "application/json",
         },
         body: JSON.stringify({

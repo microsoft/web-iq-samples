@@ -28,7 +28,7 @@ describe("WebIqClient", () => {
     vi.stubGlobal("fetch", vi.fn()
       .mockResolvedValueOnce(response("ranking"))
       .mockResolvedValueOnce(response("grosses")));
-    const result = await new WebIqClient("key", "https://api.microsoft.ai/v3", 18000, 3)
+    const result = await new WebIqClient(async () => "test-access-token", "https://api.microsoft.ai/v3", 18000, 3)
       .search([{ query: "ranking" }, { query: "grosses" }]);
     expect(result.sources.map(({ query }) => query)).toEqual(["ranking", "grosses", "ranking"]);
     expect(result.sources.map(({ id }) => id)).toEqual([1, 2, 3]);
@@ -44,7 +44,7 @@ describe("WebIqClient", () => {
         }],
       });
     }));
-    const result = await new WebIqClient("key", "https://api.microsoft.ai/v3", 18000, 30)
+    const result = await new WebIqClient(async () => "test-access-token", "https://api.microsoft.ai/v3", 18000, 30)
       .search([{ query: "cast" }, { query: "gross" }]);
     expect(result.sources).toHaveLength(1);
     expect(result.sources[0]!.content).toContain("cast synthetic fact.");
@@ -52,7 +52,7 @@ describe("WebIqClient", () => {
     expect(result.sources[0]!.passages?.map(({ query }) => query)).toEqual(["cast", "gross"]);
   });
 
-  it("authenticates with the Web IQ API key", async () => {
+  it("authenticates with an Entra bearer token without sending an API key", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -76,14 +76,16 @@ describe("WebIqClient", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
+    const tokenProvider = vi.fn().mockResolvedValue("test-access-token");
     const client = new WebIqClient(
-      "test-webiq-key",
+      tokenProvider,
       "https://api.microsoft.ai/v3",
       18000,
       12,
     );
     const result = await client.search([{ query: "Arrival reviews" }]);
 
+    expect(tokenProvider).toHaveBeenCalledOnce();
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.microsoft.ai/v3/auto");
     expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body)).toEqual({
@@ -97,9 +99,10 @@ describe("WebIqClient", () => {
       region: "US",
     });
     expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
-      "x-apikey": "test-webiq-key",
+      Authorization: "Bearer test-access-token",
       "content-type": "application/json",
     });
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).not.toHaveProperty("x-apikey");
     expect(result.sources[0]?.title).toBe("Arrival reviews");
     expect(result.calls).toHaveLength(1);
     expect(result.calls[0]?.query).toBe("Arrival reviews");
@@ -122,7 +125,40 @@ describe("WebIqClient", () => {
       sourceCount: 1,
       query: "Arrival reviews",
     });
-    expect(JSON.stringify(log)).not.toMatch(/test-webiq-key|Critics praised/);
+    expect(JSON.stringify(log)).not.toMatch(/test-access-token|Critics praised/);
+  });
+
+  it("uses the provider's current token on each request so refreshed tokens reach Web IQ", async () => {
+    const tokenProvider = vi.fn()
+      .mockResolvedValueOnce("first-access-token")
+      .mockResolvedValueOnce("refreshed-access-token");
+    const fetchMock = vi.fn().mockImplementation(async () => Response.json({ results: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new WebIqClient(tokenProvider, "https://api.microsoft.ai/v3", 18000, 30);
+
+    await client.search([{ query: "Arrival reviews" }]);
+    await client.search([{ query: "Arrival cast" }]);
+
+    expect(fetchMock.mock.calls.map(([, options]) => options.headers.Authorization))
+      .toEqual(["Bearer first-access-token", "Bearer refreshed-access-token"]);
+  });
+
+  it("fails closed on token acquisition errors and logs no credential details", async () => {
+    vi.stubEnv("WEBIQ_API_KEY", "unused-api-key");
+    const tokenProvider = vi.fn().mockRejectedValue(new Error("private certificate details"));
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(new WebIqClient(tokenProvider, "https://api.microsoft.ai/v3", 18000, 30)
+      .search([{ query: "movie" }])).rejects.toThrow();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledOnce();
+    const log = JSON.parse(vi.mocked(console.error).mock.calls[0]![0] as string);
+    expect(log).toMatchObject({
+      status: null, traceId: null, outcome: "error", errorType: "Error",
+    });
+    expect(JSON.stringify(log)).not.toMatch(/private certificate|unused-api-key/);
   });
 
   it("forwards mixed Auto modes and keeps them paired with queries and trace IDs in parallel", async () => {
@@ -130,7 +166,7 @@ describe("WebIqClient", () => {
       .mockResolvedValueOnce(Response.json({ traceId: "review-trace", results: [] }))
       .mockResolvedValueOnce(Response.json({ traceId: "cast-trace", results: [] }));
     vi.stubGlobal("fetch", fetchMock);
-    const result = await new WebIqClient("key", "https://api.microsoft.ai/v3", 18000, 30)
+    const result = await new WebIqClient(async () => "test-access-token", "https://api.microsoft.ai/v3", 18000, 30)
       .search([
         { query: "Arrival reviews", autoMode: "advanced" },
         { query: "Arrival cast", autoMode: "lite" },
@@ -174,7 +210,7 @@ describe("WebIqClient", () => {
         },
       ],
     })));
-    const result = await new WebIqClient("key", "https://api.microsoft.ai/v3", 18000, 1)
+    const result = await new WebIqClient(async () => "test-access-token", "https://api.microsoft.ai/v3", 18000, 1)
       .search([{ query: "movie" }]);
     expect(result.sources).toHaveLength(1);
     const log = JSON.parse(vi.mocked(console.info).mock.calls[0]![0] as string);
@@ -200,7 +236,7 @@ describe("WebIqClient", () => {
     },
   ])("logs a $name with safe error metadata", async ({ response, status, traceId }) => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response()));
-    await expect(new WebIqClient("secret-api-key", "https://api.microsoft.ai/v3", 18000, 30)
+    await expect(new WebIqClient(async () => "test-access-token", "https://api.microsoft.ai/v3", 18000, 30)
       .search([{ query: "movie" }])).rejects.toThrow();
     expect(console.info).not.toHaveBeenCalled();
     expect(console.error).toHaveBeenCalledOnce();
@@ -210,12 +246,12 @@ describe("WebIqClient", () => {
       outcome: "error", errorType: "Error", query: "movie",
       durationMs: expect.any(Number),
     });
-    expect(JSON.stringify(log)).not.toMatch(/secret-api-key|private upstream details/);
+    expect(JSON.stringify(log)).not.toMatch(/test-access-token|private upstream details/);
   });
 
   it("logs network failures when no upstream status or trace ID is available", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new DOMException("private URL", "TimeoutError")));
-    await expect(new WebIqClient("key", "https://api.microsoft.ai/v3", 18000, 30)
+    await expect(new WebIqClient(async () => "test-access-token", "https://api.microsoft.ai/v3", 18000, 30)
       .search([{ query: "movie" }])).rejects.toThrow();
     expect(console.error).toHaveBeenCalledOnce();
     const log = JSON.parse(vi.mocked(console.error).mock.calls[0]![0] as string);
@@ -234,7 +270,7 @@ describe("WebIqClient", () => {
         citations: [{ title: "Private source", url: "https://example.com/private-url" }],
       }],
     })));
-    const result = await new WebIqClient("key", "https://api.microsoft.ai/v3", 18000, 30)
+    const result = await new WebIqClient(async () => "test-access-token", "https://api.microsoft.ai/v3", 18000, 30)
       .search([{ query: "private query" }]);
     expect(result.sources).toHaveLength(1);
     const log = JSON.parse(vi.mocked(console.info).mock.calls[0]![0] as string);
@@ -258,7 +294,7 @@ describe("WebIqClient", () => {
         ],
       }],
     })));
-    const result = await new WebIqClient("key", "https://api.microsoft.ai/v3", 18000, 30)
+    const result = await new WebIqClient(async () => "test-access-token", "https://api.microsoft.ai/v3", 18000, 30)
       .search([{ query: "movie coverage" }]);
     expect(result.sources.map(({ title, contentSource }) => ({ title, contentSource }))).toEqual([
       { title: "Web review", contentSource: "web" },
@@ -275,7 +311,7 @@ describe("WebIqClient", () => {
         citations: [{ title: "Movie review", url: "https://example.com/review" }],
       }],
     })));
-    const result = await new WebIqClient("key", "https://api.microsoft.ai/v3", 18000, 30)
+    const result = await new WebIqClient(async () => "test-access-token", "https://api.microsoft.ai/v3", 18000, 30)
       .search([{ query: "movie review" }]);
     expect(result.sources).toHaveLength(1);
     expect(result.sources[0]).toMatchObject({
@@ -319,7 +355,7 @@ describe("WebIqClient", () => {
         },
       ],
     })));
-    const result = await new WebIqClient("key", "https://api.microsoft.ai/v3/", 18000, 30)
+    const result = await new WebIqClient(async () => "test-access-token", "https://api.microsoft.ai/v3/", 18000, 30)
       .search([{ query: "movie media" }]);
     expect(result.sources).toHaveLength(4);
     expect(result.sources[0]).toMatchObject({
@@ -351,7 +387,7 @@ describe("WebIqClient", () => {
         },
       ],
     })));
-    const result = await new WebIqClient("key", "https://api.microsoft.ai/v3", 18000, 30)
+    const result = await new WebIqClient(async () => "test-access-token", "https://api.microsoft.ai/v3", 18000, 30)
       .search([{ query: "movie" }]);
     expect(result.sources).toHaveLength(1);
     expect(result.sources[0]!.media).toEqual({ type: "video" });
@@ -362,7 +398,7 @@ describe("WebIqClient", () => {
       .mockResolvedValueOnce(Response.json({ results: [] }))
       .mockResolvedValueOnce(Response.json({ webResults: [] }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = new WebIqClient("key", "https://api.microsoft.ai/v3", 18000, 30);
+    const client = new WebIqClient(async () => "test-access-token", "https://api.microsoft.ai/v3", 18000, 30);
     expect((await client.search([{ query: "no matches" }])).sources).toEqual([]);
     await expect(client.search([{ query: "wrong contract" }])).rejects.toThrow("invalid results array");
   });
