@@ -1,0 +1,22 @@
+{
+  "name": "webiq-movie-chat",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,client -c blue,magenta \"npm run dev --workspace server\" \"npm run dev --workspace client\"",
+    "build": "npm run build --workspace client && npm run build --workspace server",
+    "typecheck": "npm run typecheck --workspace client && npm run typecheck --workspace server",
+    "test": "npm run test --workspaces",
+    "start": "npm run start --workspace server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  },
+  "engines": {
+    "node": "^22.12.0 || >=24.0.0"
+  }
+}
