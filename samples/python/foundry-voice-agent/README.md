@@ -234,7 +234,7 @@ to search current news; a direct answer is visibly marked as not live-verified.
 3. Azure semantic voice activity detection (VAD) detects the end of a turn. The backend starts a
    response with `tool_choice="auto"` and only `search_web` available, so the model either speaks
    directly or calls the tool.
-4. `search_web` calls Web IQ Auto in fast mode with web and news filters. Generated text evidence
+4. `search_web` calls Web IQ Auto with web and news filters. Generated text evidence
    and its result-scoped citations are treated as untrusted. A failed or empty search lets the
    model explain the limitation, never invent news.
 5. With tools disabled, the model speaks an answer from this turn's evidence. The browser plays

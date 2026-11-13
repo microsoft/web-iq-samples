@@ -187,7 +187,7 @@ class WebIQ:
         try:
             async with asyncio.timeout(18):
                 arguments = {
-                    "query": query, "language": "en", "region": "US", "mode": "fast",
+                    "query": query, "language": "en", "region": "US", "mode": "lite",
                     "responseFilter": ["web", "news"], "maxResponseLength": 3000,
                     "maxCitations": 5,
                 }

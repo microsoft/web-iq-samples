@@ -76,7 +76,7 @@ async def test_auto_request_and_entitlement_errors():
         assert await WebIQ(client, "https://api.microsoft.ai/v3/auto").search("news today", 1) == []
     assert requests[0].method == "POST"
     assert json.loads(requests[0].content) == {
-        "query": "news today", "language": "en", "region": "US", "mode": "fast",
+        "query": "news today", "language": "en", "region": "US", "mode": "lite",
         "responseFilter": ["web", "news"], "maxResponseLength": 3000, "maxCitations": 5,
     }
     assert requests[0].headers["x-apikey"] == "SECRET"
