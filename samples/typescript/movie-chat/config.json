@@ -1,0 +1,23 @@
+{
+  "webiq": {
+    "base_url": "https://api.microsoft.ai/v3",
+    "max_response_length": 18000,
+    "max_sources": 30
+  },
+  "azure_openai": {
+    "endpoint": "https://<your-resource>.openai.azure.com/",
+    "deployment": "<your-chat-deployment>",
+    "api_version": "2024-12-01-preview"
+  },
+  "query_planning": {
+    "mode": "iterative",
+    "max_iterations": 5,
+    "max_queries_per_iteration": 5,
+    "max_total_queries": 8
+  },
+  "server": {
+    "port": 3000,
+    "session_ttl_minutes": 120,
+    "max_history_messages": 12
+  }
+}
