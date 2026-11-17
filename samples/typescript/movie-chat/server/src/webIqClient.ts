@@ -325,7 +325,7 @@ function normalizeResult(result: unknown, query: string): Array<Omit<WebIqSource
   }
   const { type, content } = result.evidence;
   if (typeof content !== "string" && !isRecord(content)) return [];
-  if (type === "text" ? typeof content !== "string" || !content.trim()
+  if (type === "text" || type === "text/news" ? typeof content !== "string" || !content.trim()
     : !["media/image", "media/video"].includes(String(type)) || !isRecord(content)) {
     return [];
   }

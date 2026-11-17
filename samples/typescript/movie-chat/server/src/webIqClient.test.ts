@@ -290,20 +290,45 @@ describe("WebIqClient", () => {
         evidence: { type: "text", content: "Movie coverage." },
         citations: [
           { title: "Web review", url: "https://example.com/review", contentSource: "web" },
-          { title: "News article", url: "https://example.com/news", contentSource: "news" },
           { title: "Missing category", url: "https://example.com/missing" },
           { title: "Invalid category", url: "https://example.com/invalid", contentSource: { type: "news" } },
         ],
+      }, {
+        evidence: {
+          type: "text/news",
+          content: "Recent movie news.",
+          thumbnail: { url: "https://example.com/thumbnail.jpg", width: 320, height: 180 },
+        },
+        citations: [{
+          title: "News article", url: "https://example.com/news", contentSource: "news",
+          lastUpdatedAt: "2026-11-17",
+        }],
       }],
     })));
     const result = await new WebIqClient(async () => "test-access-token", "https://api.microsoft.ai/v3", 18000, 30)
       .search([{ query: "movie coverage" }]);
     expect(result.sources.map(({ title, contentSource }) => ({ title, contentSource }))).toEqual([
       { title: "Web review", contentSource: "web" },
-      { title: "News article", contentSource: "news" },
       { title: "Missing category", contentSource: undefined },
       { title: "Invalid category", contentSource: undefined },
+      { title: "News article", contentSource: "news" },
     ]);
+    expect(result.sources[3]).toMatchObject({
+      content: "Recent movie news.", query: "movie coverage", updatedAt: "2026-11-17",
+    });
+    expect(result.sources[3]).not.toHaveProperty("media");
+  });
+
+  it.each(["", "   ", {}, null])("omits malformed news content: %j", async (content) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({
+      results: [{
+        evidence: { type: "text/news", content },
+        citations: [{ title: "News article", url: "https://example.com/news", contentSource: "news" }],
+      }],
+    })));
+    const result = await new WebIqClient(async () => "test-access-token", "https://api.microsoft.ai/v3", 18000, 30)
+      .search([{ query: "movie news" }]);
+    expect(result.sources).toEqual([]);
   });
 
   it("caps long source passages at 3,000 characters without dropping their citations", async () => {
